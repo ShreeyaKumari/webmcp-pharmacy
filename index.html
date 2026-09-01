@@ -8,7 +8,27 @@
 </head>
 <body>
   <div id="app">
-    <h1>WebMCP Pharmacy Demo — Stage 0 Skeleton</h1>
+    <header class="app-header">
+      <h1>WebMCP Pharmacy Demo</h1>
+      <p class="app-subtitle">
+        Agent-assisted prescription refills for Aditya's Mom &middot;
+        <a href="caregiver.html">Caregiver view</a>
+      </p>
+    </header>
+
+    <main>
+      <label class="search-label" for="search">Search medications</label>
+      <input
+        id="search"
+        class="search-input"
+        type="search"
+        placeholder="Start typing a medication name…"
+        autocomplete="off"
+      >
+
+      <div id="med-list" class="med-list"></div>
+      <p id="empty-state" class="empty-state" hidden></p>
+    </main>
   </div>
 
   <script src="data.js"></script>
