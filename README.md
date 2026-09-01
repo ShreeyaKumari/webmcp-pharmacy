@@ -39,7 +39,7 @@ static site.
 
 ## Live Demo
 
-TODO: add the Vercel URL here once deployed.
+https://webmcp-pharmacy.vercel.app/
 
 ## License
 
