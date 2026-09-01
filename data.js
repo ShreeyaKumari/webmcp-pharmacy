@@ -3,12 +3,32 @@
 // Plain-script project (no modules, no bundler), so everything is attached to
 // `window` and consumed by app.js and tools.js via globals.
 //
-// Dates are chosen relative to early September 2026 so the demo shows a mix of
-// refill-eligible and not-yet-eligible medications, including one controlled
-// substance in each state.
+// lastFilledDate values are computed relative to today at load time rather than
+// hardcoded, so the intended demo spread — some medications eligible, some not
+// yet, one controlled substance in each state — holds on whatever day the page
+// is opened. Each daysAgo(N) is paired with that medication's own
+// refillEligibleAfterDays so the resulting state is unambiguous:
+//
+//   med-001  filled  5d ago, window 30d  ->  not eligible for another 25 days
+//   med-002  filled 45d ago, window 30d  ->  eligible (15 days clear)
+//   med-003  filled 40d ago, window 30d  ->  eligible, controlled (approval block)
+//   med-004  filled  3d ago, window 30d  ->  not eligible, controlled
+//   med-005  filled 50d ago, window 45d  ->  eligible (5 days clear)
 
 (function () {
   "use strict";
+
+  // Returns the ISO date (YYYY-MM-DD) N days before today.
+  // Arithmetic is done in UTC to match the date handling in app.js, so the
+  // computed dates never shift by a day depending on the viewer's timezone.
+  function daysAgo(n) {
+    var now = new Date();
+    var d = new Date(
+      Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+    );
+    d.setUTCDate(d.getUTCDate() - n);
+    return d.toISOString().split("T")[0]; // "YYYY-MM-DD"
+  }
 
   var MEDICATIONS = [
     {
@@ -16,7 +36,7 @@
       name: "Lisinopril",
       dosage: "10mg, once daily",
       patientName: "Aditya's Mom",
-      lastFilledDate: "2026-08-05",
+      lastFilledDate: daysAgo(5),
       refillEligibleAfterDays: 30,
       isControlledSubstance: false,
       pharmacyLocation: "Main Street Pharmacy"
@@ -26,7 +46,7 @@
       name: "Metformin",
       dosage: "500mg, twice daily with meals",
       patientName: "Aditya's Mom",
-      lastFilledDate: "2026-07-20",
+      lastFilledDate: daysAgo(45),
       refillEligibleAfterDays: 30,
       isControlledSubstance: false,
       pharmacyLocation: "Main Street Pharmacy"
@@ -36,7 +56,7 @@
       name: "Alprazolam",
       dosage: "0.5mg, as needed for anxiety",
       patientName: "Aditya's Mom",
-      lastFilledDate: "2026-08-02",
+      lastFilledDate: daysAgo(40),
       refillEligibleAfterDays: 30,
       isControlledSubstance: true,
       pharmacyLocation: "Main Street Pharmacy"
@@ -46,7 +66,7 @@
       name: "Oxycodone",
       dosage: "5mg, every 6 hours as needed for pain",
       patientName: "Aditya's Mom",
-      lastFilledDate: "2026-08-25",
+      lastFilledDate: daysAgo(3),
       refillEligibleAfterDays: 30,
       isControlledSubstance: true,
       pharmacyLocation: "Riverside Specialty Pharmacy"
@@ -56,8 +76,10 @@
       name: "Atorvastatin",
       dosage: "20mg, once daily at bedtime",
       patientName: "Aditya's Mom",
-      lastFilledDate: "2026-06-15",
-      refillEligibleAfterDays: 60,
+      lastFilledDate: daysAgo(50),
+      // 45-day window so daysAgo(50) is comfortably past it; a 60-day window
+      // would have made this medication NOT eligible.
+      refillEligibleAfterDays: 45,
       isControlledSubstance: false,
       pharmacyLocation: "Main Street Pharmacy"
     }
