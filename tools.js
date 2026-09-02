@@ -16,22 +16,40 @@
   // -------------------------------------------------------------------
   // Demo mode gate
   //
-  // The WebMCP Mode toggle on the pharmacy page writes 'on' | 'off' to
-  // localStorage and reloads, so this flag is read fresh on every page load.
+  // Resolution order: ?webmcp=on|off in the URL, then localStorage, then 'on'.
+  //
+  // The URL takes precedence because localStorage does not travel between
+  // browser instances — ChatGPT's cloud browser is a separate session from the
+  // user's own Chrome, so a shared link is the only way to hand a specific
+  // mode to another agent. The toggle writes both.
+  //
   // With the mode off, NO tools are registered at all — the page stays a
   // completely ordinary website, which is the whole point: it shows what an
   // agent has to fall back to when a site exposes no structured tools.
   //
-  // localStorage throws in some privacy modes, so a failed read defaults to
-  // 'on' rather than breaking the page.
+  // localStorage throws in some privacy modes, so a failed read falls through
+  // to the default rather than breaking the page.
   // -------------------------------------------------------------------
 
-  var webmcpDemoMode = "on";
-  try {
-    webmcpDemoMode = localStorage.getItem("webmcpDemoMode") || "on";
-  } catch (error) {
-    console.warn(LOG_PREFIX, "Could not read the WebMCP demo mode setting:", error.message);
+  function getWebMCPMode() {
+    try {
+      var params = new URLSearchParams(window.location.search);
+      if (params.has("webmcp")) {
+        return params.get("webmcp"); // 'on' or 'off'
+      }
+    } catch (error) {
+      console.warn(LOG_PREFIX, "Could not read the WebMCP mode from the URL:", error.message);
+    }
+
+    try {
+      return localStorage.getItem("webmcpDemoMode") || "on";
+    } catch (error) {
+      console.warn(LOG_PREFIX, "Could not read the WebMCP demo mode setting:", error.message);
+      return "on";
+    }
   }
+
+  var webmcpDemoMode = getWebMCPMode();
 
   if (webmcpDemoMode === "off") {
     console.log(

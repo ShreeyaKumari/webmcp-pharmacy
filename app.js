@@ -477,19 +477,37 @@
   // ---------------------------------------------------------------------
   // WebMCP Mode toggle
   //
-  // Flips localStorage.webmcpDemoMode between 'on' and 'off' and reloads, so
-  // tools.js re-reads the flag at load time and either registers all four
-  // tools or none of them. Nothing else on the page changes: with the mode
-  // off, the pharmacy still works exactly as an ordinary website, which is
-  // what an agent without tools would have to navigate. This affects only
-  // this page's tool registration — caregiver.html and /api are untouched.
+  // Flips the mode between 'on' and 'off' and navigates, so tools.js re-reads
+  // the flag at load time and either registers all four tools or none of them.
+  // Nothing else on the page changes: with the mode off, the pharmacy still
+  // works exactly as an ordinary website, which is what an agent without tools
+  // would have to navigate. This affects only this page's tool registration —
+  // caregiver.html and /api are untouched.
+  //
+  // The mode is written to BOTH localStorage and the ?webmcp= query parameter,
+  // and resolved URL-first to match getWebMCPMode() in tools.js. The URL is
+  // what makes the mode shareable: localStorage does not carry over to another
+  // browser instance, so handing an agent a ?webmcp=off link is the only way
+  // to put a different session into a specific mode.
   // ---------------------------------------------------------------------
 
   var toggleEl = document.getElementById("webmcp-toggle");
   var toggleTextEl = document.getElementById("webmcp-toggle-text");
   var offNoticeEl = document.getElementById("webmcp-off-notice");
 
+  // Mirrors getWebMCPMode() in tools.js: URL first, then localStorage, then
+  // 'on'. Kept in the same order so the pill can never disagree with whether
+  // the tools were actually registered.
   function readDemoMode() {
+    try {
+      var params = new URLSearchParams(window.location.search);
+      if (params.has("webmcp")) {
+        return params.get("webmcp");
+      }
+    } catch (error) {
+      // Fall through to storage.
+    }
+
     try {
       return localStorage.getItem("webmcpDemoMode") || "on";
     } catch (error) {
@@ -524,27 +542,30 @@
     toggleEl.addEventListener("click", function () {
       var next = readDemoMode() === "off" ? "on" : "off";
 
+      // Best effort: keeps the choice sticky for this browser. A failure here
+      // (private mode, storage disabled) is not fatal, because the query
+      // parameter below carries the mode on its own.
       try {
         localStorage.setItem("webmcpDemoMode", next);
       } catch (error) {
-        showToggleError(
-          "Could not save the WebMCP mode setting: " + error.message
+        console.warn(
+          "[WebMCP Pharmacy] Could not save the WebMCP mode setting:",
+          error.message
         );
-        return;
       }
 
-      // Reload so tools.js re-evaluates the flag from scratch.
-      location.reload();
+      // Navigate with ?webmcp=<next> so the reload picks the mode up via the
+      // URL check in tools.js, and so the current link is shareable.
+      try {
+        var url = new URL(window.location.href);
+        url.searchParams.set("webmcp", next);
+        window.location.href = url.toString();
+      } catch (error) {
+        // Very old browser without the URL constructor: fall back to a plain
+        // reload, which still picks up the localStorage value written above.
+        window.location.reload();
+      }
     });
-  }
-
-  // Surfaces a toggle-level problem in the off-notice slot, which is the only
-  // page-level message area on this page.
-  function showToggleError(text) {
-    if (offNoticeEl) {
-      offNoticeEl.hidden = false;
-      offNoticeEl.textContent = text;
-    }
   }
 
   renderDemoMode(readDemoMode());
