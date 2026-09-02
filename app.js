@@ -719,6 +719,10 @@
   // A browser that fires neither load nor error on an image (corrupt file,
   // unsupported codec) would otherwise hang the upload forever.
   var IMAGE_DECODE_TIMEOUT_MS = 8000;
+  // The extraction model is a thinking model and the server allows it up to
+  // 55s, so a slow read is normal rather than a hang. After this long, say so,
+  // otherwise the wait looks broken.
+  var UPLOAD_PATIENCE_MS = 10000;
   var MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
   var uploadZone = document.getElementById("upload-zone");
@@ -913,6 +917,17 @@
     setUploadEnabled(false);
     showUploadMessage("warning", "Analyzing prescription…");
 
+    // Escalates the loading copy rather than replacing it, so the user is not
+    // left wondering whether a long read has failed.
+    var patienceTimer = setTimeout(function () {
+      if (uploadBusy) {
+        showUploadMessage(
+          "warning",
+          "Analyzing prescription… This can take up to a minute for a clear read."
+        );
+      }
+    }, UPLOAD_PATIENCE_MS);
+
     try {
       var prepared = await prepareImage(file);
 
@@ -931,6 +946,7 @@
       );
     } finally {
       // Always leaves the control usable again — never stuck loading.
+      clearTimeout(patienceTimer);
       uploadBusy = false;
       uploadCooldownUntil = Date.now() + UPLOAD_COOLDOWN_MS;
       setUploadEnabled(true);

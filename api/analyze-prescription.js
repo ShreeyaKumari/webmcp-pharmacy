@@ -27,7 +27,16 @@ const GEMINI_ENDPOINT =
   "https://generativelanguage.googleapis.com/v1beta/models/" +
   GEMINI_MODEL +
   ":generateContent";
-const GEMINI_TIMEOUT_MS = 25000;
+// gemini-3-flash-preview is a thinking model and can take far longer per
+// request than the older non-thinking flash models — 25s was aborting before
+// it ever answered. This must stay BELOW the function's maxDuration below, so
+// the abort fires first and the client gets a real error instead of Vercel
+// killing the function mid-flight.
+const GEMINI_TIMEOUT_MS = 55000;
+
+// Vercel function duration. Set in vercel.json (authoritative for CommonJS
+// functions) and mirrored here for readability.
+const FUNCTION_MAX_DURATION_SECONDS = 60;
 
 // ~4MB of decoded image data.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -49,6 +58,30 @@ const GENERATION_CONFIG = {
   temperature: 0,
   responseMimeType: "application/json"
 };
+
+// Reasoning effort, deliberately left unset.
+//
+// This task — reading five fields off a prescription — does not need deep
+// reasoning, so a lower thinking setting would cut the latency that forced the
+// timeout increase above. Gemini exposes such a control, but the exact field
+// differs by model generation (the 2.5 line documents
+// generationConfig.thinkingConfig.thinkingBudget; the 3 line is documented as
+// taking a thinking level), and sending a field a model does not accept turns
+// a slow-but-working call into a hard 400 INVALID_ARGUMENT.
+//
+// So nothing is guessed here. Confirm the exact field for
+// gemini-3-flash-preview in AI Studio, then set it below and it is merged into
+// generationConfig automatically — e.g.
+//   var GEMINI_THINKING_CONFIG = { thinkingConfig: { thinkingBudget: 0 } };
+// The 400 body logged in callGemini() names the offending field if it is wrong.
+const GEMINI_THINKING_CONFIG = null;
+
+function buildGenerationConfig() {
+  if (!GEMINI_THINKING_CONFIG) {
+    return GENERATION_CONFIG;
+  }
+  return Object.assign({}, GENERATION_CONFIG, GEMINI_THINKING_CONFIG);
+}
 
 const VALID_CONFIDENCE = ["high", "medium", "low"];
 
@@ -166,7 +199,7 @@ async function callGemini(apiKey, imageBase64, mimeType) {
             ]
           }
         ],
-        generationConfig: GENERATION_CONFIG
+        generationConfig: buildGenerationConfig()
       })
     });
 
@@ -188,7 +221,7 @@ async function callGemini(apiKey, imageBase64, mimeType) {
           " for model " +
           GEMINI_MODEL +
           "; request generationConfig was " +
-          JSON.stringify(GENERATION_CONFIG) +
+          JSON.stringify(buildGenerationConfig()) +
           "; full response body follows:"
       );
       console.error(detail);
@@ -242,7 +275,7 @@ function extractModelText(payload) {
   return text;
 }
 
-module.exports = async (req, res) => {
+const handler = async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
 
   if (req.method !== "POST") {
@@ -312,7 +345,19 @@ module.exports = async (req, res) => {
     var payload = await callGemini(apiKey, imageBase64, mimeType);
     modelText = extractModelText(payload);
   } catch (error) {
-    console.error("[analyze-prescription] Gemini call failed:", error);
+    if (error && error.name === "AbortError") {
+      console.error(
+        "[analyze-prescription] Gemini did not respond within " +
+          GEMINI_TIMEOUT_MS / 1000 +
+          "s for model " +
+          GEMINI_MODEL +
+          " (function maxDuration is " +
+          FUNCTION_MAX_DURATION_SECONDS +
+          "s)."
+      );
+    } else {
+      console.error("[analyze-prescription] Gemini call failed:", error);
+    }
     return res.status(502).json({ error: FRIENDLY_FAILURE });
   }
 
@@ -395,3 +440,9 @@ module.exports = async (req, res) => {
     });
   }
 };
+
+module.exports = handler;
+
+// Vercel reads maxDuration from vercel.json for CommonJS functions; this
+// mirrors it so the value is visible next to the timeout it has to exceed.
+module.exports.maxDuration = FUNCTION_MAX_DURATION_SECONDS;
