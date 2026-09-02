@@ -733,6 +733,15 @@
   var uploadBusy = false;
   var uploadCooldownUntil = 0;
 
+  // The upload result card polls for the caregiver's decision. Unlike the
+  // refill flow — where a human is waiting to act on the outcome and polls
+  // indefinitely — this stops as soon as a decision lands, because there is
+  // nothing further to do afterwards. The cap only exists so an abandoned tab
+  // does not poll forever.
+  var UPLOAD_DECISION_POLL_MS = 2000;
+  var UPLOAD_DECISION_MAX_POLLS = 150; // 5 minutes
+  var uploadDecisionToken = 0;
+
   function setUploadEnabled(enabled) {
     if (uploadButton) {
       uploadButton.disabled = !enabled;
@@ -755,6 +764,106 @@
     }
     uploadResult.innerHTML = "";
     uploadResult.appendChild(el("p", "med-message med-message--" + tone, text));
+  }
+
+  // Replaces just the status line inside the existing card, so the extracted
+  // details stay put and only the outcome changes.
+  function setUploadCardMessage(tone, text) {
+    if (!uploadResult) {
+      return;
+    }
+
+    var card = uploadResult.querySelector(".upload-card");
+    if (!card) {
+      showUploadMessage(tone, text);
+      return;
+    }
+
+    var message = card.querySelector(".med-message");
+    var replacement = el("p", "med-message med-message--" + tone, text);
+
+    if (message) {
+      card.replaceChild(replacement, message);
+    } else {
+      card.appendChild(replacement);
+    }
+  }
+
+  function decisionMessage(record) {
+    if (record.status === "rejected") {
+      return { tone: "error", text: "Caregiver did not approve this upload." };
+    }
+
+    if (record.duplicate) {
+      return {
+        tone: "success",
+        text:
+          "Approved — matches your existing " +
+          (record.matchedExistingMedication || record.medicationName) +
+          " prescription, no new entry needed."
+      };
+    }
+
+    return {
+      tone: "success",
+      text:
+        "Approved by caregiver. In a full implementation, " +
+        record.medicationName +
+        " would now appear in the medication list below."
+    };
+  }
+
+  async function pollUploadDecision(requestId) {
+    // A newer upload invalidates any poll still running for an older one.
+    uploadDecisionToken += 1;
+    var token = uploadDecisionToken;
+
+    for (var attempt = 1; attempt <= UPLOAD_DECISION_MAX_POLLS; attempt++) {
+      await new Promise(function (resolve) {
+        setTimeout(resolve, UPLOAD_DECISION_POLL_MS);
+      });
+
+      if (token !== uploadDecisionToken) {
+        return;
+      }
+
+      try {
+        var record = await window.ApprovalClient.getUploadStatus(requestId);
+
+        if (token !== uploadDecisionToken) {
+          return;
+        }
+
+        if (record && (record.status === "approved" || record.status === "rejected")) {
+          var outcome = decisionMessage(record);
+          setUploadCardMessage(outcome.tone, outcome.text);
+          return; // Final decision — stop polling.
+        }
+      } catch (error) {
+        // An expired or missing record will never resolve, so stop asking.
+        if (/No prescription upload found/i.test(error.message)) {
+          setUploadCardMessage(
+            "warning",
+            "This upload request is no longer available — it may have expired. " +
+              "Upload the prescription again if it still needs review."
+          );
+          return;
+        }
+
+        // Anything else is treated as transient: keep polling quietly.
+        console.warn(
+          "[WebMCP Pharmacy] upload decision poll " + attempt + " failed:",
+          error.message
+        );
+      }
+    }
+
+    if (token === uploadDecisionToken) {
+      setUploadCardMessage(
+        "warning",
+        "Still pending caregiver review. Reload the page to check again later."
+      );
+    }
   }
 
   function showUploadSuccess(payload) {
@@ -913,6 +1022,9 @@
       return;
     }
 
+    // Abandon any decision poll from a previous upload.
+    uploadDecisionToken += 1;
+
     uploadBusy = true;
     setUploadEnabled(false);
     showUploadMessage("warning", "Analyzing prescription…");
@@ -939,6 +1051,11 @@
 
       var payload = await client.analyzePrescription(prepared);
       showUploadSuccess(payload);
+
+      // Watch for the caregiver's decision and update the card in place.
+      if (typeof client.getUploadStatus === "function") {
+        pollUploadDecision(payload.requestId);
+      }
     } catch (error) {
       showUploadMessage(
         "error",

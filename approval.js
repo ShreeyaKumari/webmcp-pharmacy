@@ -173,6 +173,14 @@
     return payload;
   }
 
+  // Status of one upload, for the pharmacy page's decision polling.
+  function getUploadStatus(requestId) {
+    return fetchJSON(
+      "/api/prescription-uploads?requestId=" + encodeURIComponent(requestId),
+      { method: "GET", headers: { Accept: "application/json" } }
+    );
+  }
+
   async function listPendingUploads() {
     var payload = await fetchJSON("/api/prescription-uploads", {
       method: "GET",
@@ -197,6 +205,7 @@
     submitDecision: submitDecision,
     waitForDecision: waitForDecision,
     analyzePrescription: analyzePrescription,
+    getUploadStatus: getUploadStatus,
     listPendingUploads: listPendingUploads,
     submitUploadDecision: submitUploadDecision,
     DEFAULT_POLL_INTERVAL_MS: DEFAULT_POLL_INTERVAL_MS

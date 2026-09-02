@@ -161,11 +161,84 @@
       return card;
     }
 
-    function render(requests) {
-      listEl.innerHTML = "";
-      requests.forEach(function (request) {
-        listEl.appendChild(buildCard(request));
+    // Keyed diff used by both lists on this page.
+    //
+    // Both lists poll every 2 seconds. Rebuilding a container from scratch
+    // each cycle made it blank and repopulate, which read as a flicker, so
+    // instead each card carries data-key (its request id) and data-signature
+    // (a hash of everything it renders). A card whose signature is unchanged
+    // is left untouched in the DOM; only genuinely changed cards are rebuilt,
+    // new ones inserted, and departed ones removed.
+    function reconcileList(container, items, options) {
+      var byKey = {};
+      var child = container.firstElementChild;
+
+      while (child) {
+        var existingKey = child.getAttribute("data-key");
+        if (existingKey) {
+          byKey[existingKey] = child;
+        }
+        child = child.nextElementSibling;
+      }
+
+      var seen = {};
+      var previous = null;
+
+      items.forEach(function (item) {
+        var key = options.keyOf(item);
+        var signature = options.signatureOf(item);
+        var existing = byKey[key];
+        var node;
+
+        if (existing && existing.getAttribute("data-signature") === signature) {
+          // Nothing this card displays has changed — leave the node alone.
+          node = existing;
+        } else {
+          node = options.buildCard(item);
+          node.setAttribute("data-key", key);
+          node.setAttribute("data-signature", signature);
+          if (existing) {
+            container.replaceChild(node, existing);
+          }
+        }
+
+        seen[key] = true;
+
+        // Insert or move only when the node is not already in position, so a
+        // steady queue never touches the DOM at all.
+        var expected = previous ? previous.nextElementSibling : container.firstElementChild;
+        if (node !== expected) {
+          container.insertBefore(node, expected);
+        }
+        previous = node;
       });
+
+      Object.keys(byKey).forEach(function (key) {
+        if (!seen[key]) {
+          container.removeChild(byKey[key]);
+        }
+      });
+    }
+
+    function render(requests) {
+      reconcileList(listEl, requests, {
+        keyOf: function (request) {
+          return request.requestId;
+        },
+        // timeAgo() is part of the signature so the relative time refreshes
+        // exactly when its wording changes, and not on every poll.
+        signatureOf: function (request) {
+          return JSON.stringify([
+            request.status,
+            request.medicationName,
+            request.patientName,
+            timeAgo(request.createdAt),
+            Boolean(inFlight[request.requestId])
+          ]);
+        },
+        buildCard: buildCard
+      });
+
       emptyEl.hidden = requests.length > 0;
     }
 
@@ -284,10 +357,25 @@
     }
 
     function renderUploads(uploads) {
-      uploadListEl.innerHTML = "";
-      uploads.forEach(function (upload) {
-        uploadListEl.appendChild(buildUploadCard(upload));
+      reconcileList(uploadListEl, uploads, {
+        keyOf: function (upload) {
+          return upload.requestId;
+        },
+        signatureOf: function (upload) {
+          return JSON.stringify([
+            upload.status,
+            upload.medicationName,
+            upload.dosage,
+            upload.patientName,
+            upload.prescriberName,
+            upload.confidence,
+            timeAgo(upload.createdAt),
+            Boolean(uploadsInFlight[upload.requestId])
+          ]);
+        },
+        buildCard: buildUploadCard
       });
+
       uploadEmptyEl.hidden = uploads.length > 0;
     }
 
