@@ -18,8 +18,15 @@ const PENDING_UPLOADS_KEY = "pending-uploads";
 const RECORD_TTL_SECONDS = 60 * 60 * 24;
 
 // Gemini
+//
+// The model name is the one thing most likely to need changing here: model
+// lines get retired. Keep it in its own constant so a swap is a one-line edit.
+// gemini-1.5-flash was retired and returned 404 on this endpoint.
+const GEMINI_MODEL = "gemini-3-flash-preview";
 const GEMINI_ENDPOINT =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/" +
+  GEMINI_MODEL +
+  ":generateContent";
 const GEMINI_TIMEOUT_MS = 25000;
 
 // ~4MB of decoded image data.
@@ -33,6 +40,15 @@ const ALLOWED_MIME_TYPES = [
   "image/heic",
   "image/heif"
 ];
+
+// temperature 0 for repeatable extraction; responseMimeType asks the model for
+// raw JSON instead of prose. Both are standard v1beta generateContent fields.
+// If a model ever rejects one, the 400 body logged in callGemini() names the
+// offending field.
+const GENERATION_CONFIG = {
+  temperature: 0,
+  responseMimeType: "application/json"
+};
 
 const VALID_CONFIDENCE = ["high", "medium", "low"];
 
@@ -150,22 +166,34 @@ async function callGemini(apiKey, imageBase64, mimeType) {
             ]
           }
         ],
-        generationConfig: {
-          temperature: 0,
-          responseMimeType: "application/json"
-        }
+        generationConfig: GENERATION_CONFIG
       })
     });
 
     if (!response.ok) {
       var detail = "";
       try {
-        detail = (await response.text()).slice(0, 500);
+        detail = await response.text();
       } catch (readError) {
         detail = "(response body unreadable)";
       }
-      // Logged server-side only; the client gets FRIENDLY_FAILURE.
-      throw new Error("Gemini returned HTTP " + response.status + ": " + detail);
+
+      // Logged in full, server-side only — the client only ever gets
+      // FRIENDLY_FAILURE. This is where a retired model name (404), a rejected
+      // generationConfig field (400 INVALID_ARGUMENT naming the field), a bad
+      // key (403) or a quota problem (429) becomes visible.
+      console.error(
+        "[analyze-prescription] Gemini HTTP " +
+          response.status +
+          " for model " +
+          GEMINI_MODEL +
+          "; request generationConfig was " +
+          JSON.stringify(GENERATION_CONFIG) +
+          "; full response body follows:"
+      );
+      console.error(detail);
+
+      throw new Error("Gemini returned HTTP " + response.status + " for " + GEMINI_MODEL);
     }
 
     return await response.json();
@@ -177,10 +205,22 @@ async function callGemini(apiKey, imageBase64, mimeType) {
 function extractModelText(payload) {
   var candidates = payload && payload.candidates;
   if (!Array.isArray(candidates) || candidates.length === 0) {
-    // Safety blocks and empty completions land here.
-    throw new Error(
-      "Gemini returned no candidates: " + JSON.stringify(payload).slice(0, 500)
+    // Safety blocks and empty completions land here. promptFeedback carries
+    // the block reason, so log the whole payload rather than a prefix.
+    console.error(
+      "[analyze-prescription] Gemini returned no candidates; full payload follows:"
     );
+    console.error(JSON.stringify(payload));
+    throw new Error("Gemini returned no candidates for " + GEMINI_MODEL);
+  }
+
+  if (candidates[0].finishReason && candidates[0].finishReason !== "STOP") {
+    console.error(
+      "[analyze-prescription] Gemini finishReason was " +
+        candidates[0].finishReason +
+        "; full payload follows:"
+    );
+    console.error(JSON.stringify(payload));
   }
 
   var parts = candidates[0].content && candidates[0].content.parts;
