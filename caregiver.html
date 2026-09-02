@@ -26,11 +26,14 @@
     </main>
   </div>
 
+  <script src="approval.js"></script>
   <script>
   (function () {
     "use strict";
 
-    var POLL_INTERVAL_MS = 2000;
+    // Shared with app.js and tools.js — see approval.js.
+    var client = window.ApprovalClient;
+    var POLL_INTERVAL_MS = client ? client.DEFAULT_POLL_INTERVAL_MS : 2000;
 
     var listEl = document.getElementById("approval-list");
     var emptyEl = document.getElementById("empty-state");
@@ -49,41 +52,6 @@
     function clearError() {
       errorEl.hidden = true;
       errorEl.textContent = "";
-    }
-
-    async function readErrorMessage(response) {
-      try {
-        var payload = await response.json();
-        if (payload && payload.error) {
-          return payload.error;
-        }
-      } catch (error) {
-        // Not JSON — fall through to the status line.
-      }
-      return "HTTP " + response.status + " " + (response.statusText || "");
-    }
-
-    async function fetchJSON(url, options) {
-      var response;
-      try {
-        response = await fetch(url, options);
-      } catch (error) {
-        throw new Error(
-          "Could not reach the approval service (" +
-            (error && error.message ? error.message : error) +
-            "). Check your connection."
-        );
-      }
-
-      if (!response.ok) {
-        throw new Error(await readErrorMessage(response));
-      }
-
-      try {
-        return await response.json();
-      } catch (error) {
-        throw new Error("The approval service returned a malformed response.");
-      }
     }
 
     function timeAgo(isoTimestamp) {
@@ -169,12 +137,7 @@
 
     async function refresh() {
       try {
-        var payload = await fetchJSON("/api/approval-status", {
-          method: "GET",
-          headers: { Accept: "application/json" }
-        });
-
-        var pending = payload && Array.isArray(payload.pending) ? payload.pending : [];
+        var pending = await client.listPendingApprovals();
         render(pending);
         clearError();
 
@@ -197,11 +160,7 @@
       await refresh();
 
       try {
-        await fetchJSON("/api/approval-status", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ requestId: requestId, decision: decision })
-        });
+        await client.submitDecision(requestId, decision);
         clearError();
       } catch (error) {
         showError("Could not submit the decision: " + error.message);
@@ -221,6 +180,14 @@
         button.getAttribute("data-decision")
       );
     });
+
+    if (!client) {
+      showError(
+        "Could not load the approval client (approval.js). Reload the page to try again."
+      );
+      statusEl.textContent = "";
+      return;
+    }
 
     refresh();
     setInterval(refresh, POLL_INTERVAL_MS);

@@ -108,118 +108,44 @@
   }
 
   // -------------------------------------------------------------------
-  // Caregiver approval plumbing (Stage 4)
+  // Caregiver approval (Stage 4)
   //
   // Controlled-substance refills are gated on a caregiver decision that is
   // stored server-side in Redis, so the approval can be granted from a
   // completely separate browser session (caregiver.html).
+  //
+  // The HTTP request/poll logic lives in approval.js and is shared with the
+  // Refill button in app.js. The only difference here is the poll budget: an
+  // agent tool call cannot hang forever, so it gives up after 30 seconds,
+  // whereas the UI keeps waiting because a human is watching it.
   // -------------------------------------------------------------------
 
   var APPROVAL_POLL_INTERVAL_MS = 2000;
   var APPROVAL_MAX_POLLS = 15; // 15 polls x 2s = 30s
 
-  function delay(ms) {
-    return new Promise(function (resolve) {
-      setTimeout(resolve, ms);
-    });
-  }
-
-  // Reads a JSON error message out of a failed response body when there is
-  // one, so callers can surface the server's own explanation.
-  async function readErrorMessage(response) {
-    try {
-      var payload = await response.json();
-      if (payload && payload.error) {
-        return payload.error;
-      }
-    } catch (error) {
-      // Body was not JSON; fall through to the status text.
-    }
-    return "HTTP " + response.status + " " + (response.statusText || "");
-  }
-
-  async function fetchJSON(url, options) {
-    var response;
-    try {
-      response = await fetch(url, options);
-    } catch (error) {
-      // Network-level failure: offline, DNS, CORS, aborted request.
+  // approval.js loads before this file, but resolve it lazily anyway so a
+  // missing script produces a clear tool error instead of a crash.
+  function getApprovalClient() {
+    var client = window.ApprovalClient;
+    if (!client || typeof client.requestApproval !== "function") {
       throw new Error(
-        "Could not reach " + url + " (" + (error && error.message ? error.message : error) + ")."
+        "The caregiver approval client is unavailable (window.ApprovalClient " +
+          "is not loaded). Check that approval.js is included on the page."
       );
     }
-
-    if (!response.ok) {
-      throw new Error("Request to " + url + " failed: " + (await readErrorMessage(response)));
-    }
-
-    try {
-      return await response.json();
-    } catch (error) {
-      throw new Error("Response from " + url + " was not valid JSON.");
-    }
-  }
-
-  // Creates the pending approval record and returns its requestId.
-  async function createApprovalRequest(eligibility) {
-    var payload = await fetchJSON("/api/request-approval", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        medicationId: eligibility.medicationId,
-        medicationName: eligibility.name,
-        patientName: eligibility.patientName
-      })
-    });
-
-    if (!payload || typeof payload.requestId !== "string") {
-      throw new Error("/api/request-approval did not return a requestId.");
-    }
-
-    return payload.requestId;
-  }
-
-  // Polls until the caregiver decides or the budget runs out. Transient poll
-  // failures do not abort the wait — they are recorded and reported only if
-  // no decision ever arrives.
-  async function waitForApprovalDecision(requestId) {
-    var lastError = null;
-
-    for (var attempt = 1; attempt <= APPROVAL_MAX_POLLS; attempt++) {
-      await delay(APPROVAL_POLL_INTERVAL_MS);
-
-      try {
-        var record = await fetchJSON(
-          "/api/approval-status?requestId=" + encodeURIComponent(requestId),
-          { method: "GET", headers: { Accept: "application/json" } }
-        );
-
-        console.log(
-          LOG_PREFIX,
-          "approval poll " + attempt + "/" + APPROVAL_MAX_POLLS + ":",
-          record && record.status
-        );
-
-        if (record && (record.status === "approved" || record.status === "denied")) {
-          return { status: record.status, record: record };
-        }
-      } catch (error) {
-        lastError = error;
-        console.warn(
-          LOG_PREFIX,
-          "approval poll " + attempt + "/" + APPROVAL_MAX_POLLS + " failed:",
-          error.message
-        );
-      }
-    }
-
-    return { status: "timeout", lastError: lastError };
+    return client;
   }
 
   // The full controlled-substance path: request approval, wait, then complete
   // the refill through the same shared refillPrescription() the UI uses.
   async function refillWithCaregiverApproval(store, eligibility) {
-    var requestId = await createApprovalRequest(eligibility);
+    var client = getApprovalClient();
+
+    var requestId = await client.requestApproval({
+      medicationId: eligibility.medicationId,
+      medicationName: eligibility.name,
+      patientName: eligibility.patientName
+    });
 
     console.log(
       LOG_PREFIX,
@@ -227,7 +153,10 @@
       requestId
     );
 
-    var outcome = await waitForApprovalDecision(requestId);
+    var outcome = await client.waitForDecision(requestId, {
+      intervalMs: APPROVAL_POLL_INTERVAL_MS,
+      maxPolls: APPROVAL_MAX_POLLS
+    });
 
     if (outcome.status === "denied") {
       return textResult(

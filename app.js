@@ -20,6 +20,11 @@
   // Per-medication inline UI messages, keyed by medication id.
   var messages = {};
 
+  // Medications with a caregiver-approval request in flight, keyed by
+  // medication id -> { requestId }. Used to disable the Refill button and to
+  // keep a second click from opening a duplicate request.
+  var pendingApprovals = {};
+
   // ---------------------------------------------------------------------
   // Date helpers — all arithmetic is done in UTC on YYYY-MM-DD strings so
   // results never shift with the viewer's timezone or DST.
@@ -277,8 +282,14 @@
         ? "Eligible"
         : "Not yet eligible — available on " + formatDate(eligibility.eligibleOn)
     );
-    var button = el("button", "refill-btn", "Refill");
+    var isAwaitingApproval = Boolean(pendingApprovals[med.id]);
+    var button = el(
+      "button",
+      "refill-btn",
+      isAwaitingApproval ? "Awaiting approval…" : "Refill"
+    );
     button.type = "button";
+    button.disabled = isAwaitingApproval;
     button.setAttribute("data-medication-id", med.id);
     side.appendChild(badge);
     side.appendChild(button);
@@ -321,22 +332,133 @@
     not_found: "error"
   };
 
-  function handleRefillClick(medicationId) {
-    var result = refillPrescription(medicationId);
+  function setMessage(medicationId, tone, text) {
+    messages[medicationId] = { tone: tone, text: text };
+    render();
+  }
 
-    if (result.status === "requires_caregiver_approval") {
-      messages[medicationId] = {
-        tone: "warning",
-        text: "This medication requires caregiver approval (coming in a later stage)"
-      };
-    } else {
-      messages[medicationId] = {
-        tone: TONE_BY_STATUS[result.status] || "error",
-        text: result.message
-      };
+  // Controlled-substance path: open a real approval request and poll until the
+  // caregiver decides. There is no timeout here — unlike the WebMCP tool, a
+  // human is watching this page, so it keeps showing "Pending…" until a
+  // decision arrives or the user navigates away. Only this one card changes
+  // state; the rest of the page stays fully interactive.
+  async function awaitCaregiverApproval(eligibility) {
+    var medicationId = eligibility.medicationId;
+    var client = window.ApprovalClient;
+
+    if (!client || typeof client.requestApproval !== "function") {
+      setMessage(
+        medicationId,
+        "error",
+        "Cannot request caregiver approval: approval.js did not load."
+      );
+      return;
     }
 
-    render();
+    pendingApprovals[medicationId] = { requestId: null };
+    setMessage(medicationId, "warning", "Requesting caregiver approval…");
+
+    try {
+      var requestId = await client.requestApproval({
+        medicationId: medicationId,
+        medicationName: eligibility.name,
+        patientName: eligibility.patientName
+      });
+
+      pendingApprovals[medicationId] = { requestId: requestId };
+      setMessage(
+        medicationId,
+        "warning",
+        "Pending caregiver approval… waiting for a decision on the caregiver " +
+          "dashboard. (Request " + requestId + ")"
+      );
+
+      var outcome = await client.waitForDecision(requestId, {
+        intervalMs: client.DEFAULT_POLL_INTERVAL_MS,
+        maxPolls: Infinity,
+        // A failed poll does not end the wait; say so and keep going.
+        onPoll: function (info) {
+          if (info.error) {
+            setMessage(
+              medicationId,
+              "warning",
+              "Pending caregiver approval… (last status check failed: " +
+                info.error.message +
+                " — still retrying)"
+            );
+          }
+        },
+        isCancelled: function () {
+          return !pendingApprovals[medicationId];
+        }
+      });
+
+      delete pendingApprovals[medicationId];
+
+      if (outcome.status === "denied") {
+        setMessage(
+          medicationId,
+          "error",
+          "Caregiver denied this refill. " +
+            eligibility.name +
+            " was not refilled."
+        );
+        return;
+      }
+
+      if (outcome.status !== "approved") {
+        setMessage(
+          medicationId,
+          "warning",
+          "The approval request is no longer being watched. (Request " + requestId + ")"
+        );
+        return;
+      }
+
+      // Approved — complete the refill through the same shared function the
+      // non-controlled path and the WebMCP tool both use.
+      var result = refillPrescription(medicationId, { caregiverApproved: true });
+
+      if (result.status === "refilled") {
+        setMessage(
+          medicationId,
+          "success",
+          "Caregiver approved. " + result.message
+        );
+      } else {
+        setMessage(
+          medicationId,
+          "error",
+          "Caregiver approved, but the refill could not be completed: " + result.message
+        );
+      }
+    } catch (error) {
+      delete pendingApprovals[medicationId];
+      setMessage(
+        medicationId,
+        "error",
+        "Caregiver approval failed: " + (error && error.message ? error.message : error)
+      );
+    }
+  }
+
+  function handleRefillClick(medicationId) {
+    // Ignore clicks while this medication is already waiting on a caregiver.
+    if (pendingApprovals[medicationId]) {
+      return;
+    }
+
+    var eligibility = checkRefillEligibility(medicationId);
+
+    // Eligibility is checked first so a controlled substance that is not yet
+    // due never bothers the caregiver with an approval request.
+    if (eligibility.found && eligibility.isEligible && eligibility.isControlledSubstance) {
+      awaitCaregiverApproval(eligibility);
+      return;
+    }
+
+    var result = refillPrescription(medicationId);
+    setMessage(medicationId, TONE_BY_STATUS[result.status] || "error", result.message);
   }
 
   if (listEl) {
