@@ -264,6 +264,59 @@
     );
   }
 
+  // data.js exposes the interaction table as a global; resolve it lazily with
+  // the same defensive contract as getStore().
+  function getDrugInteractions() {
+    var interactions = window.DRUG_INTERACTIONS;
+    if (!Array.isArray(interactions)) {
+      throw new Error(
+        "The drug interaction table is unavailable (window.DRUG_INTERACTIONS " +
+          "is not loaded). Check that data.js is included on the page."
+      );
+    }
+    return interactions;
+  }
+
+  function requireIdArray(args, field, minItems) {
+    var value = args && args[field];
+    if (!Array.isArray(value)) {
+      throw new Error(
+        'Missing or invalid required argument "' + field + '": expected an array of strings.'
+      );
+    }
+
+    var ids = [];
+    value.forEach(function (item) {
+      if (typeof item !== "string" || item.trim() === "") {
+        throw new Error(
+          'Invalid entry in "' + field + '": every id must be a non-empty string.'
+        );
+      }
+      var id = item.trim();
+      // Duplicates would otherwise produce meaningless self-pairs.
+      if (ids.indexOf(id) === -1) {
+        ids.push(id);
+      }
+    });
+
+    if (ids.length < minItems) {
+      throw new Error(
+        '"' + field + '" needs at least ' + minItems + ' distinct medication ids, but received ' +
+          ids.length + "."
+      );
+    }
+
+    return ids;
+  }
+
+  // Severity ordering so the most dangerous interaction is reported first
+  // rather than in table order.
+  var SEVERITY_RANK = { severe: 3, moderate: 2, minor: 1 };
+
+  function severityRank(severity) {
+    return SEVERITY_RANK[String(severity).toLowerCase()] || 0;
+  }
+
   safeRegister({
     name: "say_hello",
     description:
@@ -465,6 +518,232 @@
       } catch (error) {
         console.error(LOG_PREFIX, "refill_prescription failed:", error);
         return textResult("refill_prescription failed: " + error.message, true);
+      }
+    }
+  });
+
+  // Exists specifically to demonstrate a task a UI-reading agent has to guess
+  // at. Nothing on the page states which medications interact — the data is
+  // never rendered — so an agent reading the DOM must fall back on its own
+  // pharmacological knowledge and infer a plausible-sounding answer, which may
+  // be subtly wrong, incomplete, or invented. This tool cross-references the
+  // site's actual interaction table and returns exactly what it contains.
+  safeRegister({
+    name: "check_drug_interactions",
+    description:
+      "Check the patient's medications against this pharmacy's drug " +
+      "interaction table. Give two or more medication ids and it returns every " +
+      "known interacting pair among them with its severity and clinical note, " +
+      "most severe first. Use this instead of reasoning about interactions " +
+      "from memory: it reports only what this pharmacy's records actually say.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        medication_ids: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 2,
+          description:
+            "Two or more medication ids to check against each other, e.g. " +
+            "[\"med-003\", \"med-004\"]. Use search_medications to find ids."
+        }
+      },
+      required: ["medication_ids"]
+    },
+    async execute(args) {
+      try {
+        var medicationIds = requireIdArray(args, "medication_ids", 2);
+        var store = getStore();
+        var interactions = getDrugInteractions();
+
+        console.log(LOG_PREFIX, "check_drug_interactions invoked with:", args);
+
+        // Resolve names up front, and fail clearly on any unknown id rather
+        // than silently reporting "no interactions" for a typo.
+        var namesById = {};
+        var unknown = [];
+
+        medicationIds.forEach(function (id) {
+          var eligibility = store.checkRefillEligibility(id);
+          if (eligibility.found) {
+            namesById[id] = eligibility.name;
+          } else {
+            unknown.push(id);
+          }
+        });
+
+        if (unknown.length > 0) {
+          return textResult(
+            "Unknown medication id(s): " +
+              unknown.join(", ") +
+              ". Known ids: " +
+              store
+                .getAllMedications()
+                .map(function (med) {
+                  return med.id;
+                })
+                .join(", ") +
+              ".",
+            true
+          );
+        }
+
+        var found = [];
+
+        for (var i = 0; i < medicationIds.length; i++) {
+          for (var j = i + 1; j < medicationIds.length; j++) {
+            var a = medicationIds[i];
+            var b = medicationIds[j];
+
+            interactions.forEach(function (entry) {
+              var matches =
+                (entry.medA === a && entry.medB === b) ||
+                (entry.medA === b && entry.medB === a);
+
+              if (matches) {
+                found.push({
+                  medicationIds: [a, b],
+                  medications: [namesById[a], namesById[b]],
+                  severity: entry.severity,
+                  note: entry.note
+                });
+              }
+            });
+          }
+        }
+
+        found.sort(function (x, y) {
+          return severityRank(y.severity) - severityRank(x.severity);
+        });
+
+        if (found.length === 0) {
+          return jsonResult({
+            checked: medicationIds.map(function (id) {
+              return { id: id, name: namesById[id] };
+            }),
+            pairsChecked: (medicationIds.length * (medicationIds.length - 1)) / 2,
+            interactionCount: 0,
+            interactions: [],
+            summary:
+              "No known interactions between " +
+              medicationIds
+                .map(function (id) {
+                  return namesById[id];
+                })
+                .join(", ") +
+              " in this pharmacy's interaction table."
+          });
+        }
+
+        return jsonResult({
+          checked: medicationIds.map(function (id) {
+            return { id: id, name: namesById[id] };
+          }),
+          pairsChecked: (medicationIds.length * (medicationIds.length - 1)) / 2,
+          interactionCount: found.length,
+          highestSeverity: found[0].severity,
+          interactions: found,
+          summary:
+            found.length +
+            (found.length === 1 ? " interaction" : " interactions") +
+            " found; highest severity: " +
+            found[0].severity +
+            "."
+        });
+      } catch (error) {
+        console.error(LOG_PREFIX, "check_drug_interactions failed:", error);
+        return textResult("check_drug_interactions failed: " + error.message, true);
+      }
+    }
+  });
+
+  // Exists specifically to demonstrate a task a UI-reading agent has to
+  // reason its way through. The page shows each medication's last-filled date
+  // and a human-worded badge, so answering "what can be refilled today?"
+  // means doing date arithmetic across five cards from rendered text — easy to
+  // get subtly wrong, and worse once a search has filtered the list. This tool
+  // computes every answer from the same eligibility logic the UI uses and
+  // returns the whole picture in one deterministic response.
+  safeRegister({
+    name: "get_refill_summary",
+    description:
+      "Get the refill status of every medication for this patient in one " +
+      "call: whether each is eligible right now, the exact date it becomes " +
+      "eligible if not, whether it is a controlled substance, and whether " +
+      "completing its refill would require caregiver approval. Use this " +
+      "instead of computing eligibility dates yourself — the dates are " +
+      "calculated, not estimated.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: []
+    },
+    async execute(args) {
+      try {
+        var store = getStore();
+
+        console.log(LOG_PREFIX, "get_refill_summary invoked");
+
+        var all = store.getAllMedications();
+        var asOf = null;
+        var patientName = null;
+
+        // Reuses checkRefillEligibility() — the same shared function behind
+        // the check_refill_eligibility tool and the UI badges — so the date
+        // math exists in exactly one place.
+        var medications = all.map(function (med) {
+          var eligibility = store.checkRefillEligibility(med.id);
+
+          asOf = eligibility.today;
+          patientName = eligibility.patientName;
+
+          var entry = {
+            id: eligibility.medicationId,
+            name: eligibility.name,
+            dosage: eligibility.dosage,
+            eligible: eligibility.isEligible,
+            isControlledSubstance: eligibility.isControlledSubstance
+          };
+
+          if (!eligibility.isEligible) {
+            entry.eligibleOn = eligibility.eligibleOn;
+          }
+
+          if (eligibility.isControlledSubstance) {
+            entry.requiresCaregiverApproval = eligibility.requiresCaregiverApproval;
+          }
+
+          return entry;
+        });
+
+        var eligibleNow = medications.filter(function (med) {
+          return med.eligible;
+        });
+        var needsApproval = eligibleNow.filter(function (med) {
+          return med.requiresCaregiverApproval === true;
+        });
+
+        return jsonResult({
+          patientName: patientName,
+          asOf: asOf,
+          medicationCount: medications.length,
+          eligibleCount: eligibleNow.length,
+          awaitingCaregiverApprovalCount: needsApproval.length,
+          medications: medications,
+          summary:
+            eligibleNow.length +
+            " of " +
+            medications.length +
+            " medications can be refilled now" +
+            (needsApproval.length > 0
+              ? ", " +
+                needsApproval.length +
+                " of which require caregiver approval to complete."
+              : ".")
+        });
+      } catch (error) {
+        console.error(LOG_PREFIX, "get_refill_summary failed:", error);
+        return textResult("get_refill_summary failed: " + error.message, true);
       }
     }
   });
