@@ -474,5 +474,79 @@
     searchInput.addEventListener("input", render);
   }
 
+  // ---------------------------------------------------------------------
+  // WebMCP Mode toggle
+  //
+  // Flips localStorage.webmcpDemoMode between 'on' and 'off' and reloads, so
+  // tools.js re-reads the flag at load time and either registers all four
+  // tools or none of them. Nothing else on the page changes: with the mode
+  // off, the pharmacy still works exactly as an ordinary website, which is
+  // what an agent without tools would have to navigate. This affects only
+  // this page's tool registration — caregiver.html and /api are untouched.
+  // ---------------------------------------------------------------------
+
+  var toggleEl = document.getElementById("webmcp-toggle");
+  var toggleTextEl = document.getElementById("webmcp-toggle-text");
+  var offNoticeEl = document.getElementById("webmcp-off-notice");
+
+  function readDemoMode() {
+    try {
+      return localStorage.getItem("webmcpDemoMode") || "on";
+    } catch (error) {
+      return "on";
+    }
+  }
+
+  function renderDemoMode(mode) {
+    var isOn = mode !== "off";
+
+    if (toggleEl) {
+      toggleEl.classList.toggle("mode-toggle--on", isOn);
+      toggleEl.classList.toggle("mode-toggle--off", !isOn);
+      toggleEl.setAttribute("aria-pressed", isOn ? "true" : "false");
+      toggleEl.title = isOn
+        ? "WebMCP tools are registered. Click to disable them."
+        : "WebMCP tools are not registered. Click to enable them.";
+    }
+
+    if (toggleTextEl) {
+      toggleTextEl.textContent = isOn
+        ? "WebMCP tools active on this page"
+        : "WebMCP tools disabled";
+    }
+
+    if (offNoticeEl) {
+      offNoticeEl.hidden = isOn;
+    }
+  }
+
+  if (toggleEl) {
+    toggleEl.addEventListener("click", function () {
+      var next = readDemoMode() === "off" ? "on" : "off";
+
+      try {
+        localStorage.setItem("webmcpDemoMode", next);
+      } catch (error) {
+        showToggleError(
+          "Could not save the WebMCP mode setting: " + error.message
+        );
+        return;
+      }
+
+      // Reload so tools.js re-evaluates the flag from scratch.
+      location.reload();
+    });
+  }
+
+  // Surfaces a toggle-level problem in the off-notice slot, which is the only
+  // page-level message area on this page.
+  function showToggleError(text) {
+    if (offNoticeEl) {
+      offNoticeEl.hidden = false;
+      offNoticeEl.textContent = text;
+    }
+  }
+
+  renderDemoMode(readDemoMode());
   render();
 })();

@@ -13,6 +13,35 @@
 
   var LOG_PREFIX = "[WebMCP Pharmacy]";
 
+  // -------------------------------------------------------------------
+  // Demo mode gate
+  //
+  // The WebMCP Mode toggle on the pharmacy page writes 'on' | 'off' to
+  // localStorage and reloads, so this flag is read fresh on every page load.
+  // With the mode off, NO tools are registered at all — the page stays a
+  // completely ordinary website, which is the whole point: it shows what an
+  // agent has to fall back to when a site exposes no structured tools.
+  //
+  // localStorage throws in some privacy modes, so a failed read defaults to
+  // 'on' rather than breaking the page.
+  // -------------------------------------------------------------------
+
+  var webmcpDemoMode = "on";
+  try {
+    webmcpDemoMode = localStorage.getItem("webmcpDemoMode") || "on";
+  } catch (error) {
+    console.warn(LOG_PREFIX, "Could not read the WebMCP demo mode setting:", error.message);
+  }
+
+  if (webmcpDemoMode === "off") {
+    console.log(
+      LOG_PREFIX,
+      "Demo mode is OFF — tools are intentionally not registered to " +
+        "demonstrate the fallback experience."
+    );
+    return;
+  }
+
   var modelContext = typeof document !== "undefined" ? document.modelContext : undefined;
 
   if (!modelContext) {

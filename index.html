@@ -29,8 +29,19 @@
         agents. Controlled substances require caregiver approval before a
         refill completes.
       </p>
-      <p class="page-meta">WebMCP tools active on this page</p>
+      <button id="webmcp-toggle" class="mode-toggle" type="button" aria-pressed="true">
+        <span class="mode-toggle__track" aria-hidden="true">
+          <span class="mode-toggle__knob"></span>
+        </span>
+        <span class="mode-toggle__text" id="webmcp-toggle-text">WebMCP tools active on this page</span>
+      </button>
     </div>
+
+    <p id="webmcp-off-notice" class="notice notice--warning" role="status" hidden>
+      <strong>WebMCP tools are currently disabled.</strong> An agent visiting
+      this page must navigate it like a human would instead of calling
+      structured tools directly.
+    </p>
 
     <div class="section-head">
       <label class="search-label" for="search">Search medications</label>
