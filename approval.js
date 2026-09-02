@@ -189,6 +189,15 @@
     return payload && Array.isArray(payload.pending) ? payload.pending : [];
   }
 
+  // Read-only log of uploads a caregiver has approved.
+  async function listApprovedPrescriptions() {
+    var payload = await fetchJSON("/api/approved-prescriptions", {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    });
+    return payload && Array.isArray(payload.approved) ? payload.approved : [];
+  }
+
   function submitUploadDecision(requestId, decision) {
     return fetchJSON("/api/prescription-uploads", {
       method: "POST",
@@ -207,6 +216,7 @@
     analyzePrescription: analyzePrescription,
     getUploadStatus: getUploadStatus,
     listPendingUploads: listPendingUploads,
+    listApprovedPrescriptions: listApprovedPrescriptions,
     submitUploadDecision: submitUploadDecision,
     DEFAULT_POLL_INTERVAL_MS: DEFAULT_POLL_INTERVAL_MS
   };

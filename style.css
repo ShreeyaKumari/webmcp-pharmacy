@@ -1116,3 +1116,102 @@ a:hover {
     width: 100%;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Approved prescriptions log
+   Deliberately quieter than .med-card: this is a record of what happened, not
+   part of the active medication list.
+   -------------------------------------------------------------------------- */
+
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.log-list:empty {
+  display: none;
+}
+
+.log-row {
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--ok-border);
+  border-radius: var(--radius-md);
+  animation: message-in 200ms var(--ease) both;
+}
+
+.log-row__title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--ink-900);
+}
+
+.log-row__meta {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--ink-500);
+}
+
+.log-row__meta--quiet {
+  font-size: var(--text-xs);
+  color: var(--ink-400);
+}
+
+.tag--duplicate {
+  color: var(--neutral-text);
+  background: var(--neutral-bg);
+  border: 1px solid var(--neutral-border);
+}
+
+/* Pharmacy-page variant: flatter and greyer, so it never competes with the
+   medication cards above it. */
+.log-list--muted .log-row {
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-sunken);
+  border-color: var(--line);
+  border-left-color: var(--line-strong);
+}
+
+.log-list--muted .log-row__title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink-700);
+}
+
+.log-list--muted .log-row__meta {
+  font-size: var(--text-xs);
+}
+
+.section-head--tight {
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+
+.log-empty {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--ink-400);
+  background: var(--surface-sunken);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-md);
+}
+
+.log-note {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--ink-400);
+}
+
+.empty-state--compact {
+  padding: var(--space-5) var(--space-4);
+  font-size: var(--text-sm);
+}

@@ -1106,6 +1106,17 @@
     });
   }
 
+  // Read-only log of caregiver-approved uploads. Shared implementation in
+  // approved-log.js, mounted here with this page's containers; polls every 5s
+  // because it is historical rather than urgent.
+  if (window.ApprovedLog && typeof window.ApprovedLog.mount === "function") {
+    window.ApprovedLog.mount({
+      listId: "approved-log",
+      emptyId: "approved-log-empty",
+      intervalMs: 5000
+    });
+  }
+
   renderDemoMode(readDemoMode());
   render();
 })();
