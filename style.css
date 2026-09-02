@@ -926,3 +926,98 @@ a:hover {
     padding: 6px var(--space-2);
   }
 }
+
+/* --------------------------------------------------------------------------
+   Refill confirmation dialog
+   Real DOM overlay (not window.confirm) built by app.js, so a UI-driven agent
+   has to find and click it. Reuses the card surface, radii, shadows and button
+   styles from the design system above.
+   -------------------------------------------------------------------------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background: rgba(16, 31, 40, 0.45);
+  backdrop-filter: blur(2px);
+  animation: overlay-in 160ms var(--ease) both;
+}
+
+.modal {
+  width: 100%;
+  max-width: 26rem;
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px rgba(16, 31, 40, 0.22);
+  animation: modal-in 180ms var(--ease) both;
+}
+
+.modal__title {
+  font-size: var(--text-lg);
+  font-weight: 680;
+}
+
+.modal__body {
+  margin-top: var(--space-3);
+  font-size: var(--text-base);
+  color: var(--ink-700);
+}
+
+.modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+/* Neutral secondary action (Cancel) */
+.btn--secondary {
+  color: var(--ink-700);
+  background: var(--surface);
+  border-color: var(--line-strong);
+  box-shadow: none;
+}
+
+.btn--secondary:hover {
+  color: var(--ink-900);
+  background: var(--surface-sunken);
+  border-color: var(--ink-300);
+  box-shadow: var(--shadow-sm);
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .modal {
+    padding: var(--space-4);
+  }
+
+  /* .refill-btn is full-width on narrow screens, so stack the actions */
+  .modal__actions {
+    flex-direction: column-reverse;
+  }
+}

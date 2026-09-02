@@ -306,6 +306,14 @@
     return card;
   }
 
+  // Realistic portal friction #2: every render tears the list down and rebuilds
+  // it. #med-list's innerHTML is cleared and each visible card is constructed
+  // as brand-new DOM elements, so any node reference or position an agent
+  // noted before a search is stale afterwards — the same churn real
+  // single-page portals produce on every keystroke. Visually identical to a
+  // user; only DOM stability changes. A WebMCP tool call is unaffected because
+  // search_medications reads PharmacyStore directly and never touches the DOM.
+  // Permanent behaviour: never gated on webmcpDemoMode or ?webmcp=.
   function render() {
     if (!listEl) {
       return;
@@ -442,6 +450,124 @@
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Realistic portal friction #1: a confirmation dialog before any refill
+  //
+  // Real healthcare portals almost never submit a refill on a single click —
+  // they interpose an explicit confirmation step. It is built from real DOM
+  // elements rather than window.confirm() precisely so that an agent driving
+  // this site through the UI must locate the dialog and click through it like
+  // any other element. A WebMCP tool call bypasses this structurally rather
+  // than by exemption: refill_prescription calls
+  // PharmacyStore.refillPrescription() directly and never touches the button,
+  // the dialog, or the DOM at all.
+  //
+  // Permanent behaviour: never gated on webmcpDemoMode or ?webmcp=, so the ON
+  // and OFF comparisons face identical friction.
+  // ---------------------------------------------------------------------
+
+  var openDialog = null;
+
+  function handleDialogKeydown(event) {
+    if (event.key === "Escape") {
+      closeRefillDialog();
+    }
+  }
+
+  function closeRefillDialog() {
+    if (!openDialog) {
+      return;
+    }
+
+    var medicationId = openDialog.medicationId;
+    var overlay = openDialog.overlay;
+
+    document.removeEventListener("keydown", handleDialogKeydown);
+    if (overlay.parentNode) {
+      overlay.parentNode.removeChild(overlay);
+    }
+    openDialog = null;
+
+    // Return focus to the Refill button that opened the dialog. It is
+    // re-queried rather than held, because a render may have replaced it.
+    var trigger = document.querySelector(
+      '.refill-btn[data-medication-id="' + medicationId + '"]'
+    );
+    if (trigger && typeof trigger.focus === "function") {
+      trigger.focus();
+    }
+  }
+
+  function openRefillDialog(eligibility, onConfirm) {
+    closeRefillDialog();
+
+    var overlay = el("div", "modal-overlay");
+
+    var dialog = el("div", "modal");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-labelledby", "refill-dialog-title");
+
+    var title = el("h2", "modal__title", "Confirm Refill");
+    title.id = "refill-dialog-title";
+
+    var body = el(
+      "p",
+      "modal__body",
+      "Submit a refill request for " +
+        eligibility.name +
+        ", " +
+        eligibility.dosage +
+        ", for " +
+        eligibility.patientName +
+        "?"
+    );
+
+    var actions = el("div", "modal__actions");
+
+    var cancelBtn = el("button", "refill-btn btn--secondary", "Cancel");
+    cancelBtn.type = "button";
+    cancelBtn.addEventListener("click", closeRefillDialog);
+
+    var confirmBtn = el("button", "refill-btn", "Confirm Refill");
+    confirmBtn.type = "button";
+    confirmBtn.addEventListener("click", function () {
+      closeRefillDialog();
+      onConfirm();
+    });
+
+    actions.appendChild(cancelBtn);
+    actions.appendChild(confirmBtn);
+
+    dialog.appendChild(title);
+    dialog.appendChild(body);
+    dialog.appendChild(actions);
+    overlay.appendChild(dialog);
+
+    // Clicking the dimmed backdrop dismisses, same as Cancel.
+    overlay.addEventListener("click", function (event) {
+      if (event.target === overlay) {
+        closeRefillDialog();
+      }
+    });
+
+    document.body.appendChild(overlay);
+    document.addEventListener("keydown", handleDialogKeydown);
+
+    openDialog = { overlay: overlay, medicationId: eligibility.medicationId };
+
+    if (typeof confirmBtn.focus === "function") {
+      confirmBtn.focus();
+    }
+  }
+
+  // The refill itself, unchanged — this is what the dialog's Confirm button
+  // runs, and it is the same shared function the WebMCP tool calls.
+  function completeRefill(medicationId) {
+    var result = refillPrescription(medicationId);
+    setMessage(medicationId, TONE_BY_STATUS[result.status] || "error", result.message);
+  }
+
   function handleRefillClick(medicationId) {
     // Ignore clicks while this medication is already waiting on a caregiver.
     if (pendingApprovals[medicationId]) {
@@ -457,6 +583,16 @@
       return;
     }
 
+    // Eligible and not controlled: confirm before submitting.
+    if (eligibility.found && eligibility.isEligible) {
+      openRefillDialog(eligibility, function () {
+        completeRefill(medicationId);
+      });
+      return;
+    }
+
+    // Not eligible / unknown id: no point confirming a refill that cannot
+    // happen, so report it inline exactly as before.
     var result = refillPrescription(medicationId);
     setMessage(medicationId, TONE_BY_STATUS[result.status] || "error", result.message);
   }
