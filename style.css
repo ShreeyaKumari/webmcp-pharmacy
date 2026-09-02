@@ -237,3 +237,75 @@ body {
     text-align: left;
   }
 }
+
+/* ---------------------------------------------------------------------
+   Caregiver approval dashboard (caregiver.html)
+   Reuses .med-card / .med-header / .med-side / .badge / .empty-state.
+   --------------------------------------------------------------------- */
+
+.approval-card {
+  border-left: 4px solid #e0a33e;
+}
+
+.approval-actions {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn--approve {
+  background: #17804a;
+}
+
+.btn--approve:hover {
+  background: #11663a;
+}
+
+.btn--deny {
+  background: #fff;
+  color: #8a1f24;
+  border: 1px solid #e0a9ab;
+}
+
+.btn--deny:hover {
+  background: #fdeaea;
+}
+
+.refill-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.med-meta--id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  color: #8a95a3;
+  word-break: break-all;
+}
+
+.error-banner {
+  margin: 0 0 18px;
+  padding: 11px 14px;
+  font-size: 0.9rem;
+  color: #8a1f24;
+  background: #fdeaea;
+  border: 1px solid #f2c3c3;
+  border-radius: 8px;
+}
+
+.poll-status {
+  margin: 18px 0 0;
+  font-size: 0.78rem;
+  color: #8a95a3;
+  text-align: right;
+}
+
+@media (max-width: 560px) {
+  .approval-actions {
+    justify-content: flex-start;
+  }
+
+  .poll-status {
+    text-align: left;
+  }
+}

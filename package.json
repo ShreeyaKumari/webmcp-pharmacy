@@ -1,0 +1,17 @@
+{
+  "name": "webmcp-pharmacy",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Agent-assisted pharmacy portal demonstrating WebMCP tools, with a Redis-backed caregiver approval flow for controlled-substance refills.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "vercel dev"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.38.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

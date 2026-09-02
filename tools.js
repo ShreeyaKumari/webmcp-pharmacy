@@ -107,6 +107,187 @@
     return value.trim();
   }
 
+  // -------------------------------------------------------------------
+  // Caregiver approval plumbing (Stage 4)
+  //
+  // Controlled-substance refills are gated on a caregiver decision that is
+  // stored server-side in Redis, so the approval can be granted from a
+  // completely separate browser session (caregiver.html).
+  // -------------------------------------------------------------------
+
+  var APPROVAL_POLL_INTERVAL_MS = 2000;
+  var APPROVAL_MAX_POLLS = 15; // 15 polls x 2s = 30s
+
+  function delay(ms) {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  // Reads a JSON error message out of a failed response body when there is
+  // one, so callers can surface the server's own explanation.
+  async function readErrorMessage(response) {
+    try {
+      var payload = await response.json();
+      if (payload && payload.error) {
+        return payload.error;
+      }
+    } catch (error) {
+      // Body was not JSON; fall through to the status text.
+    }
+    return "HTTP " + response.status + " " + (response.statusText || "");
+  }
+
+  async function fetchJSON(url, options) {
+    var response;
+    try {
+      response = await fetch(url, options);
+    } catch (error) {
+      // Network-level failure: offline, DNS, CORS, aborted request.
+      throw new Error(
+        "Could not reach " + url + " (" + (error && error.message ? error.message : error) + ")."
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error("Request to " + url + " failed: " + (await readErrorMessage(response)));
+    }
+
+    try {
+      return await response.json();
+    } catch (error) {
+      throw new Error("Response from " + url + " was not valid JSON.");
+    }
+  }
+
+  // Creates the pending approval record and returns its requestId.
+  async function createApprovalRequest(eligibility) {
+    var payload = await fetchJSON("/api/request-approval", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        medicationId: eligibility.medicationId,
+        medicationName: eligibility.name,
+        patientName: eligibility.patientName
+      })
+    });
+
+    if (!payload || typeof payload.requestId !== "string") {
+      throw new Error("/api/request-approval did not return a requestId.");
+    }
+
+    return payload.requestId;
+  }
+
+  // Polls until the caregiver decides or the budget runs out. Transient poll
+  // failures do not abort the wait — they are recorded and reported only if
+  // no decision ever arrives.
+  async function waitForApprovalDecision(requestId) {
+    var lastError = null;
+
+    for (var attempt = 1; attempt <= APPROVAL_MAX_POLLS; attempt++) {
+      await delay(APPROVAL_POLL_INTERVAL_MS);
+
+      try {
+        var record = await fetchJSON(
+          "/api/approval-status?requestId=" + encodeURIComponent(requestId),
+          { method: "GET", headers: { Accept: "application/json" } }
+        );
+
+        console.log(
+          LOG_PREFIX,
+          "approval poll " + attempt + "/" + APPROVAL_MAX_POLLS + ":",
+          record && record.status
+        );
+
+        if (record && (record.status === "approved" || record.status === "denied")) {
+          return { status: record.status, record: record };
+        }
+      } catch (error) {
+        lastError = error;
+        console.warn(
+          LOG_PREFIX,
+          "approval poll " + attempt + "/" + APPROVAL_MAX_POLLS + " failed:",
+          error.message
+        );
+      }
+    }
+
+    return { status: "timeout", lastError: lastError };
+  }
+
+  // The full controlled-substance path: request approval, wait, then complete
+  // the refill through the same shared refillPrescription() the UI uses.
+  async function refillWithCaregiverApproval(store, eligibility) {
+    var requestId = await createApprovalRequest(eligibility);
+
+    console.log(
+      LOG_PREFIX,
+      "caregiver approval requested for " + eligibility.medicationId + ":",
+      requestId
+    );
+
+    var outcome = await waitForApprovalDecision(requestId);
+
+    if (outcome.status === "denied") {
+      return textResult(
+        "The caregiver DENIED the refill request for " +
+          eligibility.name +
+          ". The prescription was not refilled. (Request id: " +
+          requestId +
+          ")",
+        false
+      );
+    }
+
+    if (outcome.status === "timeout") {
+      var timeoutMessage =
+        "The approval request for " +
+          eligibility.name +
+          " is still pending caregiver review after " +
+          (APPROVAL_MAX_POLLS * APPROVAL_POLL_INTERVAL_MS) / 1000 +
+          " seconds. It has NOT been approved and the refill was NOT completed. " +
+          "Request id: " +
+          requestId +
+          " — this request stays open and can be checked again later.";
+
+      if (outcome.lastError) {
+        timeoutMessage +=
+          " Note: at least one status check failed (" + outcome.lastError.message + ")";
+      }
+
+      return textResult(timeoutMessage, false);
+    }
+
+    // Approved — complete the refill via the shared function, passing the
+    // caregiver approval so the controlled-substance block is satisfied.
+    var result = store.refillPrescription(eligibility.medicationId, {
+      caregiverApproved: true
+    });
+
+    if (result.status !== "refilled") {
+      return textResult(
+        "The caregiver approved the request, but the refill could not be " +
+          "completed: " +
+          result.message +
+          " (Request id: " +
+          requestId +
+          ")",
+        true
+      );
+    }
+
+    return jsonResult(
+      Object.assign({}, result, {
+        approvalRequestId: requestId,
+        approvedAt: outcome.record ? outcome.record.decidedAt : undefined,
+        message:
+          result.message +
+          " This controlled substance was refilled after caregiver approval."
+      })
+    );
+  }
+
   safeRegister({
     name: "say_hello",
     description:
@@ -248,10 +429,12 @@
   safeRegister({
     name: "refill_prescription",
     description:
-      "Request a refill for a specific medication. Refills are only completed " +
-      "when the medication is eligible and is not a controlled substance; " +
-      "controlled substances are blocked pending caregiver approval. On " +
-      "success the page's medication list updates immediately.",
+      "Request a refill for a specific medication. Non-controlled medications " +
+      "are refilled immediately when eligible. Controlled substances open a " +
+      "caregiver approval request and wait up to 30 seconds for the caregiver " +
+      "to approve or deny it on the caregiver dashboard; the refill only " +
+      "completes on approval. On success the page's medication list updates " +
+      "immediately.",
     inputSchema: {
       type: "object",
       properties: {
@@ -266,11 +449,39 @@
     async execute(args) {
       try {
         var medicationId = requireString(args, "medication_id");
-        var result = getStore().refillPrescription(medicationId);
+        var store = getStore();
 
-        console.log(LOG_PREFIX, "refill_prescription invoked with:", args, "->", result.status);
+        // Eligibility is checked first so a controlled substance that is not
+        // yet due never bothers the caregiver with an approval request.
+        var eligibility = store.checkRefillEligibility(medicationId);
 
-        if (result.status === "not_found" || result.status === "not_eligible") {
+        console.log(LOG_PREFIX, "refill_prescription invoked with:", args);
+
+        if (!eligibility.found) {
+          return textResult(eligibility.message, true);
+        }
+
+        if (!eligibility.isEligible) {
+          return textResult(
+            eligibility.name +
+              " cannot be refilled yet. Last filled " +
+              eligibility.lastFilledDate +
+              "; it becomes eligible on " +
+              eligibility.eligibleOn +
+              ".",
+            true
+          );
+        }
+
+        if (eligibility.isControlledSubstance) {
+          return await refillWithCaregiverApproval(store, eligibility);
+        }
+
+        var result = store.refillPrescription(medicationId);
+
+        console.log(LOG_PREFIX, "refill_prescription result:", result.status);
+
+        if (result.status !== "refilled") {
           return textResult(result.message, true);
         }
 
@@ -281,4 +492,5 @@
       }
     }
   });
+
 })();

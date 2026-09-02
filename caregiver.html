@@ -3,10 +3,228 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Caregiver View — WebMCP Pharmacy Demo</title>
+  <title>Caregiver Approval Dashboard — WebMCP Pharmacy Demo</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>Caregiver View - Coming Soon</h1>
+  <div id="app">
+    <header class="app-header">
+      <h1>Caregiver Approval Dashboard</h1>
+      <p class="app-subtitle">
+        Controlled-substance refill requests awaiting your decision &middot;
+        <a href="index.html">Back to pharmacy</a>
+      </p>
+    </header>
+
+    <main>
+      <p id="error-banner" class="error-banner" role="alert" hidden></p>
+      <div id="approval-list" class="med-list"></div>
+      <p id="empty-state" class="empty-state" hidden>
+        No pending requests. Approvals requested from the pharmacy page will appear here.
+      </p>
+      <p id="poll-status" class="poll-status">Loading pending requests…</p>
+    </main>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    var POLL_INTERVAL_MS = 2000;
+
+    var listEl = document.getElementById("approval-list");
+    var emptyEl = document.getElementById("empty-state");
+    var errorEl = document.getElementById("error-banner");
+    var statusEl = document.getElementById("poll-status");
+
+    // Ids currently being decided, so a click cannot be double-submitted and
+    // a background poll cannot yank the card out from under the buttons.
+    var inFlight = {};
+
+    function showError(message) {
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+    }
+
+    function clearError() {
+      errorEl.hidden = true;
+      errorEl.textContent = "";
+    }
+
+    async function readErrorMessage(response) {
+      try {
+        var payload = await response.json();
+        if (payload && payload.error) {
+          return payload.error;
+        }
+      } catch (error) {
+        // Not JSON — fall through to the status line.
+      }
+      return "HTTP " + response.status + " " + (response.statusText || "");
+    }
+
+    async function fetchJSON(url, options) {
+      var response;
+      try {
+        response = await fetch(url, options);
+      } catch (error) {
+        throw new Error(
+          "Could not reach the approval service (" +
+            (error && error.message ? error.message : error) +
+            "). Check your connection."
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+
+      try {
+        return await response.json();
+      } catch (error) {
+        throw new Error("The approval service returned a malformed response.");
+      }
+    }
+
+    function timeAgo(isoTimestamp) {
+      var then = new Date(isoTimestamp).getTime();
+      if (isNaN(then)) {
+        return "just now";
+      }
+
+      var seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+      if (seconds < 5) {
+        return "just now";
+      }
+      if (seconds < 60) {
+        return seconds + " seconds ago";
+      }
+
+      var minutes = Math.floor(seconds / 60);
+      if (minutes < 60) {
+        return minutes + (minutes === 1 ? " minute ago" : " minutes ago");
+      }
+
+      var hours = Math.floor(minutes / 60);
+      return hours + (hours === 1 ? " hour ago" : " hours ago");
+    }
+
+    function el(tag, className, text) {
+      var node = document.createElement(tag);
+      if (className) {
+        node.className = className;
+      }
+      if (text != null) {
+        node.textContent = text;
+      }
+      return node;
+    }
+
+    function buildCard(request) {
+      var card = el("article", "med-card approval-card");
+
+      var header = el("div", "med-header");
+      header.appendChild(el("h2", "med-name", request.medicationName));
+      header.appendChild(el("span", "tag tag--controlled", "Controlled"));
+
+      var body = el("div", "med-body");
+      body.appendChild(el("p", "med-meta", "Patient: " + request.patientName));
+      body.appendChild(el("p", "med-meta", "Requested " + timeAgo(request.createdAt)));
+      body.appendChild(el("p", "med-meta med-meta--id", "Request " + request.requestId));
+
+      var side = el("div", "med-side approval-actions");
+      var busy = Boolean(inFlight[request.requestId]);
+
+      ["approved", "denied"].forEach(function (decision) {
+        var button = el(
+          "button",
+          "refill-btn " + (decision === "approved" ? "btn--approve" : "btn--deny"),
+          decision === "approved" ? "Approve" : "Deny"
+        );
+        button.type = "button";
+        button.disabled = busy;
+        button.setAttribute("data-request-id", request.requestId);
+        button.setAttribute("data-decision", decision);
+        side.appendChild(button);
+      });
+
+      card.appendChild(header);
+      card.appendChild(body);
+      card.appendChild(side);
+
+      if (busy) {
+        card.appendChild(el("p", "med-message med-message--warning", "Submitting decision…"));
+      }
+
+      return card;
+    }
+
+    function render(requests) {
+      listEl.innerHTML = "";
+      requests.forEach(function (request) {
+        listEl.appendChild(buildCard(request));
+      });
+      emptyEl.hidden = requests.length > 0;
+    }
+
+    async function refresh() {
+      try {
+        var payload = await fetchJSON("/api/approval-status", {
+          method: "GET",
+          headers: { Accept: "application/json" }
+        });
+
+        var pending = payload && Array.isArray(payload.pending) ? payload.pending : [];
+        render(pending);
+        clearError();
+
+        statusEl.textContent =
+          "Last updated " +
+          new Date().toLocaleTimeString() +
+          " · checking every " +
+          POLL_INTERVAL_MS / 1000 +
+          "s";
+      } catch (error) {
+        // Keep whatever is already on screen and say the refresh failed,
+        // rather than blanking the list or throwing.
+        showError("Could not load pending requests: " + error.message);
+        statusEl.textContent = "Retrying every " + POLL_INTERVAL_MS / 1000 + "s…";
+      }
+    }
+
+    async function decide(requestId, decision) {
+      inFlight[requestId] = true;
+      await refresh();
+
+      try {
+        await fetchJSON("/api/approval-status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestId: requestId, decision: decision })
+        });
+        clearError();
+      } catch (error) {
+        showError("Could not submit the decision: " + error.message);
+      } finally {
+        delete inFlight[requestId];
+        await refresh();
+      }
+    }
+
+    listEl.addEventListener("click", function (event) {
+      var button = event.target.closest("button[data-request-id]");
+      if (!button || button.disabled) {
+        return;
+      }
+      decide(
+        button.getAttribute("data-request-id"),
+        button.getAttribute("data-decision")
+      );
+    });
+
+    refresh();
+    setInterval(refresh, POLL_INTERVAL_MS);
+  })();
+  </script>
 </body>
 </html>

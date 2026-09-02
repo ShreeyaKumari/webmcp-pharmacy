@@ -142,7 +142,14 @@
 
   // Attempts a refill. Mutates in-memory state only on success.
   // status is one of: not_found | not_eligible | requires_caregiver_approval | refilled
-  function refillPrescription(medicationId) {
+  //
+  // options.caregiverApproved lets a caller complete a controlled-substance
+  // refill that a caregiver has already approved (see the approval flow in
+  // tools.js). Without it, controlled substances are always blocked — so the
+  // approved and unapproved paths share this one function rather than
+  // duplicating the refill logic.
+  function refillPrescription(medicationId, options) {
+    var caregiverApproved = Boolean(options && options.caregiverApproved);
     var eligibility = checkRefillEligibility(medicationId);
 
     if (!eligibility.found) {
@@ -173,7 +180,7 @@
       };
     }
 
-    if (med.isControlledSubstance) {
+    if (med.isControlledSubstance && !caregiverApproved) {
       return {
         status: "requires_caregiver_approval",
         refilled: false,
@@ -195,6 +202,7 @@
     return {
       status: "refilled",
       refilled: true,
+      caregiverApproved: caregiverApproved,
       medicationId: med.id,
       name: med.name,
       dosage: med.dosage,
