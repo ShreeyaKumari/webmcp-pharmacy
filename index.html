@@ -3,21 +3,46 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
   <title>WebMCP Pharmacy Demo</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="app">
-    <header class="app-header">
-      <h1>WebMCP Pharmacy Demo</h1>
-      <p class="app-subtitle">
-        Agent-assisted prescription refills for Aditya's Mom &middot;
-        <a href="caregiver.html">Caregiver view</a>
-      </p>
-    </header>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span class="brand__mark" aria-hidden="true">Rx</span>
+        <span class="brand__name">WebMCP <strong>Pharmacy</strong></span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a class="site-nav__link is-active" href="index.html" aria-current="page">Pharmacy</a>
+        <a class="site-nav__link" href="caregiver.html">Caregiver</a>
+      </nav>
+    </div>
+  </header>
 
-    <main>
+  <main id="app" class="page">
+    <div class="page-head">
+      <h1 class="page-title">WebMCP Pharmacy Demo</h1>
+      <p class="page-subtitle">
+        Prescription refills for Aditya's Mom, available to both people and AI
+        agents. Controlled substances require caregiver approval before a
+        refill completes.
+      </p>
+      <p class="page-meta">WebMCP tools active on this page</p>
+    </div>
+
+    <div class="section-head">
       <label class="search-label" for="search">Search medications</label>
+    </div>
+
+    <div class="search-field">
+      <svg class="search-field__icon" width="16" height="16" viewBox="0 0 16 16"
+           fill="none" stroke="currentColor" stroke-width="1.6"
+           stroke-linecap="round" aria-hidden="true">
+        <circle cx="7" cy="7" r="4.5"></circle>
+        <path d="M10.5 10.5 14 14"></path>
+      </svg>
       <input
         id="search"
         class="search-input"
@@ -25,11 +50,17 @@
         placeholder="Start typing a medication name…"
         autocomplete="off"
       >
+    </div>
 
-      <div id="med-list" class="med-list"></div>
-      <p id="empty-state" class="empty-state" hidden></p>
-    </main>
-  </div>
+    <div id="med-list" class="med-list"></div>
+    <p id="empty-state" class="empty-state" hidden></p>
+  </main>
+
+  <footer class="site-footer">
+    WebMCP Pharmacy Demo — a contest demonstration of
+    <code>document.modelContext</code> tool-calling. Mock data only; not a real
+    pharmacy.
+  </footer>
 
   <script src="data.js"></script>
   <script src="approval.js"></script>

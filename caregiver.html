@@ -3,28 +3,51 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
   <title>Caregiver Approval Dashboard — WebMCP Pharmacy Demo</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="app">
-    <header class="app-header">
-      <h1>Caregiver Approval Dashboard</h1>
-      <p class="app-subtitle">
-        Controlled-substance refill requests awaiting your decision &middot;
-        <a href="index.html">Back to pharmacy</a>
-      </p>
-    </header>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span class="brand__mark" aria-hidden="true">Rx</span>
+        <span class="brand__name">WebMCP <strong>Pharmacy</strong></span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a class="site-nav__link" href="index.html">Pharmacy</a>
+        <a class="site-nav__link is-active" href="caregiver.html" aria-current="page">Caregiver</a>
+      </nav>
+    </div>
+  </header>
 
-    <main>
-      <p id="error-banner" class="error-banner" role="alert" hidden></p>
-      <div id="approval-list" class="med-list"></div>
-      <p id="empty-state" class="empty-state" hidden>
-        No pending requests. Approvals requested from the pharmacy page will appear here.
+  <main id="app" class="page">
+    <div class="page-head">
+      <h1 class="page-title">Caregiver Approval Dashboard</h1>
+      <p class="page-subtitle">
+        Controlled-substance refill requests for Aditya's Mom, awaiting your
+        decision. Requests appear here the moment they are made — from the
+        pharmacy page or from an AI agent.
       </p>
-      <p id="poll-status" class="poll-status">Loading pending requests…</p>
-    </main>
-  </div>
+      <p class="page-meta">Live — refreshing every 2 seconds</p>
+    </div>
+
+    <div class="section-head">
+      <h2 class="section-title">Pending requests</h2>
+    </div>
+
+    <p id="error-banner" class="error-banner" role="alert" hidden></p>
+    <div id="approval-list" class="med-list"></div>
+    <p id="empty-state" class="empty-state" hidden>
+      No pending requests. Approvals requested from the pharmacy page will appear here.
+    </p>
+    <p id="poll-status" class="poll-status">Loading pending requests…</p>
+  </main>
+
+  <footer class="site-footer">
+    WebMCP Pharmacy Demo — caregiver approvals are stored in Upstash Redis so a
+    decision made here reaches the pharmacy page in another browser session.
+  </footer>
 
   <script src="approval.js"></script>
   <script>
