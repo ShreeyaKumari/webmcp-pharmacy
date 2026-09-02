@@ -149,6 +149,46 @@
     return { status: "timeout", lastError: lastError };
   }
 
+  // -------------------------------------------------------------------
+  // Prescription uploads (Gemini extraction + caregiver review)
+  // -------------------------------------------------------------------
+
+  // Submits an image for extraction. Resolves to
+  // { requestId, extracted, status, message }; the record is pending review,
+  // never applied automatically.
+  async function analyzePrescription(details) {
+    var payload = await fetchJSON("/api/analyze-prescription", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        imageBase64: details.imageBase64,
+        mimeType: details.mimeType
+      })
+    });
+
+    if (!payload || typeof payload.requestId !== "string") {
+      throw new Error("/api/analyze-prescription did not return a requestId.");
+    }
+
+    return payload;
+  }
+
+  async function listPendingUploads() {
+    var payload = await fetchJSON("/api/prescription-uploads", {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    });
+    return payload && Array.isArray(payload.pending) ? payload.pending : [];
+  }
+
+  function submitUploadDecision(requestId, decision) {
+    return fetchJSON("/api/prescription-uploads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId: requestId, decision: decision })
+    });
+  }
+
   window.ApprovalClient = {
     fetchJSON: fetchJSON,
     requestApproval: requestApproval,
@@ -156,6 +196,9 @@
     listPendingApprovals: listPendingApprovals,
     submitDecision: submitDecision,
     waitForDecision: waitForDecision,
+    analyzePrescription: analyzePrescription,
+    listPendingUploads: listPendingUploads,
+    submitUploadDecision: submitUploadDecision,
     DEFAULT_POLL_INTERVAL_MS: DEFAULT_POLL_INTERVAL_MS
   };
 })();

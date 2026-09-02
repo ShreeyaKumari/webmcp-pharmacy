@@ -1021,3 +1021,98 @@ a:hover {
     flex-direction: column-reverse;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Smart prescription upload
+   Upload cards use the teal brand accent so they read as a different request
+   type from the amber refill-approval cards at a glance.
+   -------------------------------------------------------------------------- */
+
+.upload-section {
+  margin-bottom: var(--space-5);
+}
+
+.upload-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  text-align: center;
+  background: var(--surface);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-lg);
+  transition: border-color 160ms var(--ease), background-color 160ms var(--ease);
+}
+
+.upload-zone--over {
+  background: var(--brand-50);
+  border-color: var(--brand-500);
+  border-style: solid;
+}
+
+.upload-zone--busy {
+  background: var(--surface-sunken);
+}
+
+.upload-zone__hint {
+  font-size: var(--text-base);
+  color: var(--ink-700);
+}
+
+.upload-zone__note {
+  max-width: 44ch;
+  font-size: var(--text-xs);
+  color: var(--ink-400);
+}
+
+.upload-result:not(:empty) {
+  margin-top: var(--space-3);
+}
+
+.upload-card {
+  --accent: var(--brand-500);
+}
+
+.tag--upload {
+  color: var(--brand-700);
+  background: var(--brand-50);
+  border: 1px solid var(--brand-100);
+}
+
+/* Confidence badges — reuse the status palette rather than adding colours */
+.tag--confidence {
+  letter-spacing: 0.04em;
+}
+
+.tag--confidence-high {
+  color: var(--ok-text);
+  background: var(--ok-bg);
+  border: 1px solid var(--ok-border);
+}
+
+.tag--confidence-medium {
+  color: var(--warn-text);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+}
+
+.tag--confidence-low {
+  color: var(--bad-text);
+  background: var(--bad-bg);
+  border: 1px solid var(--bad-border);
+}
+
+.section-head--spaced {
+  margin-top: var(--space-6);
+}
+
+@media (max-width: 620px) {
+  .upload-zone {
+    padding: var(--space-4);
+  }
+
+  .upload-zone .refill-btn {
+    width: 100%;
+  }
+}

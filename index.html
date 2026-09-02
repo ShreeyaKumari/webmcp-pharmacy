@@ -63,6 +63,30 @@
       >
     </div>
 
+    <section class="upload-section" aria-labelledby="upload-heading">
+      <h2 class="section-title" id="upload-heading">Smart prescription upload</h2>
+      <div id="upload-zone" class="upload-zone">
+        <p class="upload-zone__hint">
+          Drop a photo of a prescription here, or
+        </p>
+        <button id="upload-button" class="refill-btn btn--secondary" type="button">
+          Upload prescription
+        </button>
+        <p class="upload-zone__note">
+          Details are read automatically, then reviewed by a caregiver before
+          anything is added.
+        </p>
+        <input
+          id="prescription-file"
+          class="upload-input"
+          type="file"
+          accept="image/*"
+          hidden
+        >
+      </div>
+      <div id="upload-result" class="upload-result"></div>
+    </section>
+
     <div id="med-list" class="med-list"></div>
     <p id="empty-state" class="empty-state" hidden></p>
   </main>

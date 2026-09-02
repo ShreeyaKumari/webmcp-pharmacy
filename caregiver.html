@@ -41,6 +41,17 @@
     <p id="empty-state" class="empty-state" hidden>
       No pending requests. Approvals requested from the pharmacy page will appear here.
     </p>
+    <div class="section-head section-head--spaced">
+      <h2 class="section-title">Prescription uploads pending review</h2>
+    </div>
+
+    <p id="upload-error-banner" class="error-banner" role="alert" hidden></p>
+    <div id="upload-list" class="med-list"></div>
+    <p id="upload-empty-state" class="empty-state" hidden>
+      No prescription uploads awaiting review. Photos uploaded from the pharmacy
+      page will appear here.
+    </p>
+
     <p id="poll-status" class="poll-status">Loading pending requests…</p>
   </main>
 
@@ -204,6 +215,119 @@
       );
     });
 
+    // -------------------------------------------------------------------
+    // Prescription uploads pending review
+    //
+    // Same poll/decide shape as the refill approvals above, against
+    // /api/prescription-uploads. Kept in its own list so the two request types
+    // stay easy to tell apart.
+    // -------------------------------------------------------------------
+
+    var uploadListEl = document.getElementById("upload-list");
+    var uploadEmptyEl = document.getElementById("upload-empty-state");
+    var uploadErrorEl = document.getElementById("upload-error-banner");
+    var uploadsInFlight = {};
+
+    function showUploadError(message) {
+      uploadErrorEl.textContent = message;
+      uploadErrorEl.hidden = false;
+    }
+
+    function clearUploadError() {
+      uploadErrorEl.hidden = true;
+      uploadErrorEl.textContent = "";
+    }
+
+    function buildUploadCard(upload) {
+      var card = el("article", "med-card upload-card");
+      var busy = Boolean(uploadsInFlight[upload.requestId]);
+      var confidence = upload.confidence || "low";
+
+      var header = el("div", "med-header");
+      header.appendChild(el("h3", "med-name", upload.medicationName || "Unnamed medication"));
+      header.appendChild(el("span", "tag tag--upload", "Upload"));
+      header.appendChild(
+        el("span", "tag tag--confidence tag--confidence-" + confidence, confidence + " confidence")
+      );
+
+      var body = el("div", "med-body");
+      body.appendChild(el("p", "med-dosage", upload.dosage || "Dosage not readable"));
+      body.appendChild(el("p", "med-meta", "Patient: " + (upload.patientName || "not readable")));
+      body.appendChild(
+        el("p", "med-meta", "Prescriber: " + (upload.prescriberName || "not readable"))
+      );
+      body.appendChild(el("p", "med-meta", "Uploaded " + timeAgo(upload.createdAt)));
+      body.appendChild(el("p", "med-meta med-meta--id", "Request " + upload.requestId));
+
+      var side = el("div", "med-side approval-actions");
+      [
+        { decision: "approved", label: "Approve", className: "btn--approve" },
+        { decision: "rejected", label: "Reject", className: "btn--deny" }
+      ].forEach(function (action) {
+        var button = el("button", "refill-btn " + action.className, action.label);
+        button.type = "button";
+        button.disabled = busy;
+        button.setAttribute("data-upload-id", upload.requestId);
+        button.setAttribute("data-decision", action.decision);
+        side.appendChild(button);
+      });
+
+      card.appendChild(header);
+      card.appendChild(body);
+      card.appendChild(side);
+
+      if (busy) {
+        card.appendChild(el("p", "med-message med-message--warning", "Submitting decision…"));
+      }
+
+      return card;
+    }
+
+    function renderUploads(uploads) {
+      uploadListEl.innerHTML = "";
+      uploads.forEach(function (upload) {
+        uploadListEl.appendChild(buildUploadCard(upload));
+      });
+      uploadEmptyEl.hidden = uploads.length > 0;
+    }
+
+    async function refreshUploads() {
+      try {
+        var pending = await client.listPendingUploads();
+        renderUploads(pending);
+        clearUploadError();
+      } catch (error) {
+        // Keep whatever is on screen rather than blanking the list.
+        showUploadError("Could not load prescription uploads: " + error.message);
+      }
+    }
+
+    async function decideUpload(requestId, decision) {
+      uploadsInFlight[requestId] = true;
+      await refreshUploads();
+
+      try {
+        await client.submitUploadDecision(requestId, decision);
+        clearUploadError();
+      } catch (error) {
+        showUploadError("Could not submit the decision: " + error.message);
+      } finally {
+        delete uploadsInFlight[requestId];
+        await refreshUploads();
+      }
+    }
+
+    uploadListEl.addEventListener("click", function (event) {
+      var button = event.target.closest("button[data-upload-id]");
+      if (!button || button.disabled) {
+        return;
+      }
+      decideUpload(
+        button.getAttribute("data-upload-id"),
+        button.getAttribute("data-decision")
+      );
+    });
+
     if (!client) {
       showError(
         "Could not load the approval client (approval.js). Reload the page to try again."
@@ -213,7 +337,9 @@
     }
 
     refresh();
+    refreshUploads();
     setInterval(refresh, POLL_INTERVAL_MS);
+    setInterval(refreshUploads, POLL_INTERVAL_MS);
   })();
   </script>
 </body>

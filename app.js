@@ -704,6 +704,275 @@
     });
   }
 
+  // ---------------------------------------------------------------------
+  // Smart prescription upload
+  //
+  // The image is resized client-side before upload (smaller payload, faster
+  // round trip), sent to /api/analyze-prescription for Gemini extraction, and
+  // the result is filed for caregiver review. Nothing is added to the
+  // medication list here — approval happens on the caregiver dashboard.
+  // ---------------------------------------------------------------------
+
+  var MAX_IMAGE_EDGE_PX = 1600;
+  var JPEG_QUALITY = 0.8;
+  var UPLOAD_COOLDOWN_MS = 3000;
+  // A browser that fires neither load nor error on an image (corrupt file,
+  // unsupported codec) would otherwise hang the upload forever.
+  var IMAGE_DECODE_TIMEOUT_MS = 8000;
+  var MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
+  var uploadZone = document.getElementById("upload-zone");
+  var uploadButton = document.getElementById("upload-button");
+  var uploadInput = document.getElementById("prescription-file");
+  var uploadResult = document.getElementById("upload-result");
+
+  var uploadBusy = false;
+  var uploadCooldownUntil = 0;
+
+  function setUploadEnabled(enabled) {
+    if (uploadButton) {
+      uploadButton.disabled = !enabled;
+      uploadButton.textContent = enabled ? "Upload prescription" : "Analyzing prescription…";
+    }
+    if (uploadZone) {
+      uploadZone.classList.toggle("upload-zone--busy", !enabled);
+    }
+  }
+
+  function clearUploadResult() {
+    if (uploadResult) {
+      uploadResult.innerHTML = "";
+    }
+  }
+
+  function showUploadMessage(tone, text) {
+    if (!uploadResult) {
+      return;
+    }
+    uploadResult.innerHTML = "";
+    uploadResult.appendChild(el("p", "med-message med-message--" + tone, text));
+  }
+
+  function showUploadSuccess(payload) {
+    if (!uploadResult) {
+      return;
+    }
+
+    var extracted = payload.extracted || {};
+    var confidence = extracted.confidence || "low";
+
+    var card = el("article", "med-card upload-card");
+
+    var header = el("div", "med-header");
+    header.appendChild(el("h3", "med-name", extracted.medicationName || "Unnamed medication"));
+    header.appendChild(
+      el("span", "tag tag--confidence tag--confidence-" + confidence, confidence + " confidence")
+    );
+
+    var body = el("div", "med-body");
+    body.appendChild(el("p", "med-dosage", extracted.dosage || "Dosage not readable"));
+    body.appendChild(
+      el("p", "med-meta", "Patient: " + (extracted.patientName || "not readable"))
+    );
+    body.appendChild(
+      el("p", "med-meta", "Prescriber: " + (extracted.prescriberName || "not readable"))
+    );
+    body.appendChild(el("p", "med-meta med-meta--id", "Request " + payload.requestId));
+
+    card.appendChild(header);
+    card.appendChild(body);
+    card.appendChild(
+      el(
+        "p",
+        "med-message med-message--warning",
+        "Pending caregiver review — this has NOT been added to the medication " +
+          "list yet. A caregiver must approve it on the caregiver dashboard."
+      )
+    );
+
+    uploadResult.innerHTML = "";
+    uploadResult.appendChild(card);
+  }
+
+  // Canvas resize to keep payloads small. If the browser cannot give us a
+  // canvas context, the original bytes are sent instead (still size-checked),
+  // so an unusual environment degrades rather than blocking the upload.
+  function readFileAsDataURL(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        resolve(String(reader.result));
+      };
+      reader.onerror = function () {
+        reject(new Error("Could not read that file."));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function loadImage(dataUrl) {
+    return new Promise(function (resolve, reject) {
+      var image = new Image();
+      var settled = false;
+
+      var timer = setTimeout(function () {
+        if (!settled) {
+          settled = true;
+          reject(new Error("Image decoding timed out."));
+        }
+      }, IMAGE_DECODE_TIMEOUT_MS);
+
+      function finish(callback, value) {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        callback(value);
+      }
+
+      image.onload = function () {
+        finish(resolve, image);
+      };
+      image.onerror = function () {
+        finish(reject, new Error("That file could not be read as an image."));
+      };
+      image.src = dataUrl;
+    });
+  }
+
+  function splitDataUrl(dataUrl) {
+    var match = /^data:([^;]+);base64,(.*)$/i.exec(String(dataUrl));
+    if (!match) {
+      throw new Error("Unexpected image encoding.");
+    }
+    return { mimeType: match[1].toLowerCase(), imageBase64: match[2] };
+  }
+
+  function base64Bytes(base64) {
+    var padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+    return Math.floor((base64.length * 3) / 4) - padding;
+  }
+
+  async function prepareImage(file) {
+    var dataUrl = await readFileAsDataURL(file);
+    var original = splitDataUrl(dataUrl);
+
+    try {
+      var image = await loadImage(dataUrl);
+      var longEdge = Math.max(image.width, image.height);
+      var scale = longEdge > MAX_IMAGE_EDGE_PX ? MAX_IMAGE_EDGE_PX / longEdge : 1;
+
+      var canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+
+      var context = canvas.getContext && canvas.getContext("2d");
+      if (!context) {
+        throw new Error("Canvas is unavailable.");
+      }
+
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      return splitDataUrl(canvas.toDataURL("image/jpeg", JPEG_QUALITY));
+    } catch (error) {
+      // Resize unavailable — fall back to the file as-is.
+      console.warn("[WebMCP Pharmacy] Image resize unavailable:", error.message);
+      return original;
+    }
+  }
+
+  async function handlePrescriptionFile(file) {
+    if (!file) {
+      return;
+    }
+
+    var now = Date.now();
+    if (uploadBusy) {
+      return;
+    }
+    if (now < uploadCooldownUntil) {
+      showUploadMessage(
+        "warning",
+        "Please wait a moment before uploading another prescription."
+      );
+      return;
+    }
+
+    if (file.type && file.type.indexOf("image/") !== 0) {
+      showUploadMessage("error", "That file is not an image. Upload a photo of the prescription.");
+      return;
+    }
+
+    var client = window.ApprovalClient;
+    if (!client || typeof client.analyzePrescription !== "function") {
+      showUploadMessage("error", "Upload is unavailable: approval.js did not load.");
+      return;
+    }
+
+    uploadBusy = true;
+    setUploadEnabled(false);
+    showUploadMessage("warning", "Analyzing prescription…");
+
+    try {
+      var prepared = await prepareImage(file);
+
+      if (base64Bytes(prepared.imageBase64) > MAX_UPLOAD_BYTES) {
+        throw new Error(
+          "That image is still too large after resizing. Try a smaller photo."
+        );
+      }
+
+      var payload = await client.analyzePrescription(prepared);
+      showUploadSuccess(payload);
+    } catch (error) {
+      showUploadMessage(
+        "error",
+        error && error.message ? error.message : "The prescription could not be analysed."
+      );
+    } finally {
+      // Always leaves the control usable again — never stuck loading.
+      uploadBusy = false;
+      uploadCooldownUntil = Date.now() + UPLOAD_COOLDOWN_MS;
+      setUploadEnabled(true);
+      if (uploadInput) {
+        uploadInput.value = "";
+      }
+    }
+  }
+
+  if (uploadButton && uploadInput) {
+    uploadButton.addEventListener("click", function () {
+      clearUploadResult();
+      uploadInput.click();
+    });
+
+    uploadInput.addEventListener("change", function () {
+      handlePrescriptionFile(uploadInput.files && uploadInput.files[0]);
+    });
+  }
+
+  if (uploadZone) {
+    ["dragenter", "dragover"].forEach(function (name) {
+      uploadZone.addEventListener(name, function (event) {
+        event.preventDefault();
+        uploadZone.classList.add("upload-zone--over");
+      });
+    });
+
+    ["dragleave", "dragend"].forEach(function (name) {
+      uploadZone.addEventListener(name, function () {
+        uploadZone.classList.remove("upload-zone--over");
+      });
+    });
+
+    uploadZone.addEventListener("drop", function (event) {
+      event.preventDefault();
+      uploadZone.classList.remove("upload-zone--over");
+      var files = event.dataTransfer && event.dataTransfer.files;
+      handlePrescriptionFile(files && files[0]);
+    });
+  }
+
   renderDemoMode(readDemoMode());
   render();
 })();

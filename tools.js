@@ -748,4 +748,82 @@
     }
   });
 
+  // Lets an agent hand a photographed prescription to the site's own vision
+  // pipeline rather than transcribing it by eye. The extraction is advisory,
+  // not authoritative: the result becomes a pending_review record that a
+  // caregiver must approve, mirroring the controlled-substance refill gate.
+  // An agent cannot add a medication to this patient on its own.
+  safeRegister({
+    name: "upload_prescription",
+    description:
+      "Submit a photographed prescription for AI-assisted extraction and " +
+      "caregiver review. The image is analysed to pull out the medication " +
+      "name, dosage, patient, prescriber and a legibility confidence rating, " +
+      "and the result is queued for a caregiver to approve or reject. This " +
+      "does NOT add the medication to the patient's list — approval by a human " +
+      "caregiver is always required first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        imageBase64: {
+          type: "string",
+          description:
+            "The prescription photo as base64-encoded image data (a data: URL " +
+            "is also accepted). Maximum 4MB decoded."
+        },
+        mimeType: {
+          type: "string",
+          description:
+            'The image MIME type, e.g. "image/jpeg" or "image/png".'
+        }
+      },
+      required: ["imageBase64", "mimeType"]
+    },
+    async execute(args) {
+      try {
+        var imageBase64 = requireString(args, "imageBase64");
+        var mimeType = requireString(args, "mimeType");
+        var client = getApprovalClient();
+
+        console.log(
+          LOG_PREFIX,
+          "upload_prescription invoked (" + mimeType + ", " + imageBase64.length + " base64 chars)"
+        );
+
+        var payload = await client.analyzePrescription({
+          imageBase64: imageBase64,
+          mimeType: mimeType
+        });
+
+        var extracted = payload.extracted || {};
+
+        return jsonResult({
+          requestId: payload.requestId,
+          status: payload.status || "pending_review",
+          extracted: {
+            medicationName: extracted.medicationName,
+            dosage: extracted.dosage,
+            patientName: extracted.patientName,
+            prescriberName: extracted.prescriberName,
+            confidence: extracted.confidence
+          },
+          addedToMedicationList: false,
+          message:
+            "Prescription analysed and submitted for caregiver review as " +
+            payload.requestId +
+            ". It is PENDING caregiver review and has NOT been added to the " +
+            "patient's medication list. A caregiver must approve it on the " +
+            "caregiver dashboard first." +
+            (extracted.confidence === "low"
+              ? " Extraction confidence is LOW — the image may be hard to read, " +
+                "so the caregiver should check the details carefully."
+              : "")
+        });
+      } catch (error) {
+        console.error(LOG_PREFIX, "upload_prescription failed:", error);
+        return textResult("upload_prescription failed: " + error.message, true);
+      }
+    }
+  });
+
 })();
