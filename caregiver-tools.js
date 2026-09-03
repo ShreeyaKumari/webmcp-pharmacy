@@ -16,6 +16,62 @@
 
   var LOG_PREFIX = "[WebMCP Pharmacy]";
 
+  // -------------------------------------------------------------------
+  // Demo mode gate — identical to tools.js on the pharmacy page.
+  //
+  // Resolution order: ?webmcp=on|off in the URL, then localStorage, then 'on'.
+  //
+  // These are separate page loads, and the nav links deliberately stay clean
+  // (no query string), so the URL parameter alone would not survive navigation.
+  // localStorage is per-origin rather than per-page, so an explicit ?webmcp=
+  // value seen on ANY page is written to storage and every later page in the
+  // same browser session inherits it. That keeps the ON/OFF comparison honest
+  // across all three pages instead of only the first one.
+  //
+  // With the mode off, NO tools are registered at all — the page stays a
+  // completely ordinary website.
+  // -------------------------------------------------------------------
+
+  function getWebMCPMode() {
+    try {
+      var params = new URLSearchParams(window.location.search);
+      if (params.has("webmcp")) {
+        var mode = params.get("webmcp");
+        // Seed storage so the mode carries to the other pages of the site.
+        try {
+          localStorage.setItem("webmcpDemoMode", mode);
+        } catch (storageError) {
+          console.warn(
+            LOG_PREFIX,
+            "Could not persist the WebMCP mode for other pages:",
+            storageError.message
+          );
+        }
+        return mode; // 'on' or 'off'
+      }
+    } catch (error) {
+      console.warn(LOG_PREFIX, "Could not read the WebMCP mode from the URL:", error.message);
+    }
+
+    try {
+      return localStorage.getItem("webmcpDemoMode") || "on";
+    } catch (error) {
+      console.warn(LOG_PREFIX, "Could not read the WebMCP demo mode setting:", error.message);
+      return "on";
+    }
+  }
+
+  var webmcpDemoMode = getWebMCPMode();
+
+  if (webmcpDemoMode === "off") {
+    console.log(
+      LOG_PREFIX,
+      "Demo mode is OFF — tools are intentionally not registered to " +
+        "demonstrate the fallback experience."
+    );
+    return;
+  }
+
   var modelContext = typeof document !== "undefined" ? document.modelContext : undefined;
 
   if (!modelContext) {

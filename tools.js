@@ -21,7 +21,8 @@
   // The URL takes precedence because localStorage does not travel between
   // browser instances — ChatGPT's cloud browser is a separate session from the
   // user's own Chrome, so a shared link is the only way to hand a specific
-  // mode to another agent. The toggle writes both.
+  // mode to another agent. The toggle writes both, and an explicit ?webmcp=
+  // value is written to storage so the other two pages of the site inherit it.
   //
   // With the mode off, NO tools are registered at all — the page stays a
   // completely ordinary website, which is the whole point: it shows what an
@@ -35,7 +36,20 @@
     try {
       var params = new URLSearchParams(window.location.search);
       if (params.has("webmcp")) {
-        return params.get("webmcp"); // 'on' or 'off'
+        var mode = params.get("webmcp");
+        // Seed storage so the mode carries to caregiver.html / activity.html,
+        // whose nav links deliberately stay clean. localStorage is per-origin,
+        // so those pages inherit it for the rest of the session.
+        try {
+          localStorage.setItem("webmcpDemoMode", mode);
+        } catch (storageError) {
+          console.warn(
+            LOG_PREFIX,
+            "Could not persist the WebMCP mode for other pages:",
+            storageError.message
+          );
+        }
+        return mode; // 'on' or 'off'
       }
     } catch (error) {
       console.warn(LOG_PREFIX, "Could not read the WebMCP mode from the URL:", error.message);
