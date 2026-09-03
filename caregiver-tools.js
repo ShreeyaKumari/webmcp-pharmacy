@@ -19,46 +19,54 @@
   // -------------------------------------------------------------------
   // Demo mode gate — identical to tools.js on the pharmacy page.
   //
-  // Resolution order: ?webmcp=on|off in the URL, then localStorage, then 'on'.
+  // Resolution: an explicit ?webmcp=on|off in this page's own URL decides the
+  // mode. A bare URL with no parameter ALWAYS means 'on', and resets storage
+  // to 'on' as it goes.
   //
-  // These are separate page loads, and the nav links deliberately stay clean
-  // (no query string), so the URL parameter alone would not survive navigation.
-  // localStorage is per-origin rather than per-page, so an explicit ?webmcp=
-  // value seen on ANY page is written to storage and every later page in the
-  // same browser session inherits it. That keeps the ON/OFF comparison honest
-  // across all three pages instead of only the first one.
+  // localStorage is written so the toggle and the pages agree, but it is never
+  // read as a source of truth: a stored 'off' from an earlier session must not
+  // silently leave a visitor — a judge opening the plain link — with a
+  // tool-free site they never asked for. Turning tools off is therefore always
+  // deliberate and always visible in the address bar.
   //
   // With the mode off, NO tools are registered at all — the page stays a
   // completely ordinary website.
   // -------------------------------------------------------------------
 
   function getWebMCPMode() {
+    var params = null;
+
     try {
-      var params = new URLSearchParams(window.location.search);
-      if (params.has("webmcp")) {
-        var mode = params.get("webmcp");
-        // Seed storage so the mode carries to the other pages of the site.
-        try {
-          localStorage.setItem("webmcpDemoMode", mode);
-        } catch (storageError) {
-          console.warn(
-            LOG_PREFIX,
-            "Could not persist the WebMCP mode for other pages:",
-            storageError.message
-          );
-        }
-        return mode; // 'on' or 'off'
-      }
+      params = new URLSearchParams(window.location.search);
     } catch (error) {
       console.warn(LOG_PREFIX, "Could not read the WebMCP mode from the URL:", error.message);
     }
 
-    try {
-      return localStorage.getItem("webmcpDemoMode") || "on";
-    } catch (error) {
-      console.warn(LOG_PREFIX, "Could not read the WebMCP demo mode setting:", error.message);
-      return "on";
+    // An explicit ?webmcp= value is the ONLY way to turn tools off. It is
+    // seeded into storage so the toggle and the other pages agree on it.
+    if (params && params.has("webmcp")) {
+      var mode = params.get("webmcp");
+      try {
+        localStorage.setItem("webmcpDemoMode", mode);
+      } catch (storageError) {
+        console.warn(
+          LOG_PREFIX,
+          "Could not persist the WebMCP mode:",
+          storageError.message
+        );
+      }
+      return mode; // 'on' or 'off'
     }
+
+    // No ?webmcp= parameter at all — a bare URL. Force ON and reset storage,
+    // so a stored 'off' left behind by an earlier session can never leave a
+    // visitor with a silently tool-free site they did not ask for.
+    try {
+      localStorage.setItem("webmcpDemoMode", "on");
+    } catch (storageError) {
+      console.warn(LOG_PREFIX, "Could not reset the WebMCP mode:", storageError.message);
+    }
+    return "on";
   }
 
   var webmcpDemoMode = getWebMCPMode();

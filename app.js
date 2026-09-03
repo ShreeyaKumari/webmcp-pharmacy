@@ -631,9 +631,9 @@
   var toggleTextEl = document.getElementById("webmcp-toggle-text");
   var offNoticeEl = document.getElementById("webmcp-off-notice");
 
-  // Mirrors getWebMCPMode() in tools.js: URL first, then localStorage, then
-  // 'on'. Kept in the same order so the pill can never disagree with whether
-  // the tools were actually registered.
+  // Mirrors getWebMCPMode() in tools.js: an explicit ?webmcp= decides, and a
+  // bare URL always means 'on'. Storage is deliberately NOT consulted, so the
+  // pill can never disagree with whether the tools were actually registered.
   function readDemoMode() {
     try {
       var params = new URLSearchParams(window.location.search);
@@ -641,14 +641,10 @@
         return params.get("webmcp");
       }
     } catch (error) {
-      // Fall through to storage.
+      // A bare URL is the safe assumption.
     }
 
-    try {
-      return localStorage.getItem("webmcpDemoMode") || "on";
-    } catch (error) {
-      return "on";
-    }
+    return "on";
   }
 
   function renderDemoMode(mode) {

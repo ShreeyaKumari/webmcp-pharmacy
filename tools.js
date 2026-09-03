@@ -16,51 +16,58 @@
   // -------------------------------------------------------------------
   // Demo mode gate
   //
-  // Resolution order: ?webmcp=on|off in the URL, then localStorage, then 'on'.
+  // Resolution: an explicit ?webmcp=on|off in this page's own URL decides the
+  // mode. A bare URL with no parameter ALWAYS means 'on', and resets storage
+  // to 'on' as it goes.
   //
-  // The URL takes precedence because localStorage does not travel between
-  // browser instances — ChatGPT's cloud browser is a separate session from the
-  // user's own Chrome, so a shared link is the only way to hand a specific
-  // mode to another agent. The toggle writes both, and an explicit ?webmcp=
-  // value is written to storage so the other two pages of the site inherit it.
+  // The URL is the only source of truth because localStorage does not travel
+  // between browser instances — ChatGPT's cloud browser is a separate session
+  // from the user's own Chrome — and because a stored 'off' left over from an
+  // earlier session must not silently leave a visitor with a tool-free site
+  // they never asked for. Storage is still written so the toggle and the other
+  // pages agree, but it is never read as authority.
   //
   // With the mode off, NO tools are registered at all — the page stays a
   // completely ordinary website, which is the whole point: it shows what an
   // agent has to fall back to when a site exposes no structured tools.
   //
-  // localStorage throws in some privacy modes, so a failed read falls through
-  // to the default rather than breaking the page.
+  // localStorage throws in some privacy modes, so every access is guarded.
   // -------------------------------------------------------------------
 
   function getWebMCPMode() {
+    var params = null;
+
     try {
-      var params = new URLSearchParams(window.location.search);
-      if (params.has("webmcp")) {
-        var mode = params.get("webmcp");
-        // Seed storage so the mode carries to caregiver.html / activity.html,
-        // whose nav links deliberately stay clean. localStorage is per-origin,
-        // so those pages inherit it for the rest of the session.
-        try {
-          localStorage.setItem("webmcpDemoMode", mode);
-        } catch (storageError) {
-          console.warn(
-            LOG_PREFIX,
-            "Could not persist the WebMCP mode for other pages:",
-            storageError.message
-          );
-        }
-        return mode; // 'on' or 'off'
-      }
+      params = new URLSearchParams(window.location.search);
     } catch (error) {
       console.warn(LOG_PREFIX, "Could not read the WebMCP mode from the URL:", error.message);
     }
 
-    try {
-      return localStorage.getItem("webmcpDemoMode") || "on";
-    } catch (error) {
-      console.warn(LOG_PREFIX, "Could not read the WebMCP demo mode setting:", error.message);
-      return "on";
+    // An explicit ?webmcp= value is the ONLY way to turn tools off. It is
+    // seeded into storage so the toggle and the other pages agree on it.
+    if (params && params.has("webmcp")) {
+      var mode = params.get("webmcp");
+      try {
+        localStorage.setItem("webmcpDemoMode", mode);
+      } catch (storageError) {
+        console.warn(
+          LOG_PREFIX,
+          "Could not persist the WebMCP mode:",
+          storageError.message
+        );
+      }
+      return mode; // 'on' or 'off'
     }
+
+    // No ?webmcp= parameter at all — a bare URL. Force ON and reset storage,
+    // so a stored 'off' left behind by an earlier session can never leave a
+    // visitor with a silently tool-free site they did not ask for.
+    try {
+      localStorage.setItem("webmcpDemoMode", "on");
+    } catch (storageError) {
+      console.warn(LOG_PREFIX, "Could not reset the WebMCP mode:", storageError.message);
+    }
+    return "on";
   }
 
   var webmcpDemoMode = getWebMCPMode();
