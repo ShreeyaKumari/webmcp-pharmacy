@@ -18,6 +18,15 @@ const UPLOAD_KEY_PREFIX = "prescription-upload:";
 const PENDING_UPLOADS_KEY = "pending-uploads";
 const APPROVED_LIST_KEY = "approved-prescriptions";
 
+// The log is a demo record, not an archive, so it is capped.
+//
+// Direction matters: entries are appended with rpush, so the newest sits at the
+// TAIL (highest index), and /api/approved-prescriptions.js reads the whole list
+// then reverses it to display newest-first. Keeping the most recent 20
+// therefore means keeping the last 20 — LTRIM key -20 -1. Trimming 0..19 would
+// keep the OLDEST 20 and the log would freeze on the first 20 approvals.
+const APPROVED_LIST_MAX = 20;
+
 const RECORD_TTL_SECONDS = 60 * 60 * 24;
 const VALID_DECISIONS = ["approved", "rejected"];
 
@@ -233,6 +242,8 @@ async function handlePost(req, res, redis) {
 
   if (!existing) {
     await redis.rpush(APPROVED_LIST_KEY, approved);
+    // Keep only the newest APPROVED_LIST_MAX entries (the tail — see above).
+    await redis.ltrim(APPROVED_LIST_KEY, -APPROVED_LIST_MAX, -1);
   }
 
   await redis.srem(PENDING_UPLOADS_KEY, requestId);
