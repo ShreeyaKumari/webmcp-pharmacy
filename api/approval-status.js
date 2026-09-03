@@ -21,6 +21,16 @@ const PENDING_SET_KEY = "pending-approvals";
 const RECORD_TTL_SECONDS = 60 * 60 * 24;
 const VALID_DECISIONS = ["approved", "denied"];
 
+// Decision history for the Activity log page.
+//
+// Decided approval records survive at approval:<id> for 24h, but they are
+// removed from the pending set, so nothing could enumerate past decisions.
+// This append-only list is that history. Appended with rpush (newest at the
+// tail) and capped the same way as the approved-prescriptions log, so the
+// reader trims from the tail: LTRIM key -20 -1.
+const DECISIONS_LIST_KEY = "refill-decisions";
+const DECISIONS_LIST_MAX = 20;
+
 function getRedis() {
   try {
     return Redis.fromEnv();
@@ -175,6 +185,25 @@ async function handlePost(req, res, redis) {
     ex: RECORD_TTL_SECONDS
   });
   await redis.srem(PENDING_SET_KEY, requestId);
+
+  // Record the decision for the Activity log. Only fresh decisions are logged
+  // — the already-decided branch above returns before reaching here, so a
+  // second click cannot create a duplicate history entry.
+  try {
+    await redis.rpush(DECISIONS_LIST_KEY, {
+      requestId: updated.requestId,
+      medicationId: updated.medicationId,
+      medicationName: updated.medicationName,
+      patientName: updated.patientName,
+      status: updated.status,
+      requestedAt: updated.createdAt,
+      decidedAt: updated.decidedAt
+    });
+    await redis.ltrim(DECISIONS_LIST_KEY, -DECISIONS_LIST_MAX, -1);
+  } catch (error) {
+    // History is a nice-to-have; never fail the decision itself over it.
+    console.error("[approval-status] Could not append to the decision log:", error);
+  }
 
   return res.status(200).json(updated);
 }

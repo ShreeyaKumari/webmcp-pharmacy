@@ -198,6 +198,15 @@
     return payload && Array.isArray(payload.approved) ? payload.approved : [];
   }
 
+  // Read-only history of caregiver decisions on refill requests.
+  async function listRefillDecisions() {
+    var payload = await fetchJSON("/api/refill-decisions", {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    });
+    return payload && Array.isArray(payload.decisions) ? payload.decisions : [];
+  }
+
   function submitUploadDecision(requestId, decision) {
     return fetchJSON("/api/prescription-uploads", {
       method: "POST",
@@ -217,6 +226,7 @@
     getUploadStatus: getUploadStatus,
     listPendingUploads: listPendingUploads,
     listApprovedPrescriptions: listApprovedPrescriptions,
+    listRefillDecisions: listRefillDecisions,
     submitUploadDecision: submitUploadDecision,
     DEFAULT_POLL_INTERVAL_MS: DEFAULT_POLL_INTERVAL_MS
   };

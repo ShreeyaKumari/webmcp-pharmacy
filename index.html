@@ -17,6 +17,7 @@
       <nav class="site-nav" aria-label="Main">
         <a class="site-nav__link is-active" href="index.html" aria-current="page">Pharmacy</a>
         <a class="site-nav__link" href="caregiver.html">Caregiver</a>
+        <a class="site-nav__link" href="activity.html">Activity log</a>
       </nav>
     </div>
   </header>
@@ -85,17 +86,9 @@
         >
       </div>
       <div id="upload-result" class="upload-result"></div>
-
-      <div class="section-head section-head--tight">
-        <h3 class="section-title">Recently approved prescriptions (demo log)</h3>
-      </div>
-      <ul id="approved-log" class="log-list log-list--muted"></ul>
-      <p id="approved-log-empty" class="log-empty" hidden>
-        No prescriptions approved yet.
-      </p>
       <p class="log-note">
-        A record of uploads a caregiver has approved. This is a log only — these
-        are not part of the active medication list above.
+        Approved uploads are recorded on the
+        <a href="activity.html">Activity log</a>.
       </p>
     </section>
 
@@ -111,7 +104,6 @@
 
   <script src="data.js"></script>
   <script src="approval.js"></script>
-  <script src="approved-log.js"></script>
   <script src="tools.js"></script>
   <script src="app.js"></script>
 </body>

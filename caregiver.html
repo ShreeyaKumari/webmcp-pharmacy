@@ -17,6 +17,7 @@
       <nav class="site-nav" aria-label="Main">
         <a class="site-nav__link" href="index.html">Pharmacy</a>
         <a class="site-nav__link is-active" href="caregiver.html" aria-current="page">Caregiver</a>
+        <a class="site-nav__link" href="activity.html">Activity log</a>
       </nav>
     </div>
   </header>
@@ -27,7 +28,8 @@
       <p class="page-subtitle">
         Controlled-substance refill requests for Meera Sharma, awaiting your
         decision. Requests appear here the moment they are made — from the
-        pharmacy page or from an AI agent.
+        pharmacy page or from an AI agent. Past decisions are on the
+        <a href="activity.html">Activity log</a>.
       </p>
       <p class="page-meta">Live — refreshing every 2 seconds</p>
     </div>
@@ -52,16 +54,6 @@
       page will appear here.
     </p>
 
-    <div class="section-head section-head--spaced">
-      <h2 class="section-title">Approved prescriptions log</h2>
-    </div>
-
-    <p id="log-error-banner" class="error-banner" role="alert" hidden></p>
-    <ul id="approved-log" class="log-list"></ul>
-    <p id="approved-log-empty" class="empty-state empty-state--compact" hidden>
-      No prescriptions approved yet.
-    </p>
-
     <p id="poll-status" class="poll-status">Loading pending requests…</p>
   </main>
 
@@ -71,7 +63,7 @@
   </footer>
 
   <script src="approval.js"></script>
-  <script src="approved-log.js"></script>
+  <script src="list-diff.js"></script>
   <script>
   (function () {
     "use strict";
@@ -173,7 +165,7 @@
     }
 
     // Keyed diff used by both lists on this page, and by the approved log.
-    // Defined once in approved-log.js (window.ListDiff) so no list on the site
+    // Defined once in list-diff.js (window.ListDiff) so no list on the site
     // rebuilds its container on a poll cycle, which reads as a flicker.
     function reconcileList(container, items, options) {
       return window.ListDiff.reconcile(container, items, options);
@@ -383,9 +375,9 @@
       return;
     }
 
-    if (!window.ListDiff || !window.ApprovedLog) {
+    if (!window.ListDiff) {
       showError(
-        "Could not load the list renderer (approved-log.js). Reload the page to try again."
+        "Could not load the list renderer (list-diff.js). Reload the page to try again."
       );
       statusEl.textContent = "";
       return;
@@ -395,14 +387,6 @@
     refreshUploads();
     setInterval(refresh, POLL_INTERVAL_MS);
     setInterval(refreshUploads, POLL_INTERVAL_MS);
-
-    // Historical, so it polls less often than the pending queues above.
-    window.ApprovedLog.mount({
-      listId: "approved-log",
-      emptyId: "approved-log-empty",
-      errorId: "log-error-banner",
-      intervalMs: 5000
-    });
   })();
   </script>
 </body>

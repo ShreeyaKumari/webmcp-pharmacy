@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <title>Activity Log — WebMCP Pharmacy Demo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span class="brand__mark" aria-hidden="true">Rx</span>
+        <span class="brand__name">WebMCP <strong>Pharmacy</strong></span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a class="site-nav__link" href="index.html">Pharmacy</a>
+        <a class="site-nav__link" href="caregiver.html">Caregiver</a>
+        <a class="site-nav__link is-active" href="activity.html" aria-current="page">Activity log</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="app" class="page">
+    <div class="page-head">
+      <h1 class="page-title">Activity Log</h1>
+      <p class="page-subtitle">
+        A record of what has already been decided for Meera Sharma —
+        prescription uploads a caregiver approved, and caregiver decisions on
+        controlled-substance refill requests.
+      </p>
+      <p class="page-meta">Refreshing every 5 seconds</p>
+    </div>
+
+    <div class="section-head">
+      <h2 class="section-title">Approved prescription uploads</h2>
+    </div>
+
+    <p id="approved-error-banner" class="error-banner" role="alert" hidden></p>
+    <ul id="approved-log" class="log-list"></ul>
+    <p id="approved-log-empty" class="empty-state empty-state--compact" hidden>
+      No prescriptions approved yet.
+    </p>
+
+    <div class="section-head section-head--spaced">
+      <h2 class="section-title">Refill decisions</h2>
+    </div>
+
+    <p id="decisions-error-banner" class="error-banner" role="alert" hidden></p>
+    <ul id="decisions-log" class="log-list"></ul>
+    <p id="decisions-log-empty" class="empty-state empty-state--compact" hidden>
+      No refill decisions yet.
+    </p>
+
+    <p class="log-note">
+      Refill decisions cover controlled substances, which require caregiver
+      approval and are therefore recorded server-side. Refills of
+      non-controlled medications complete in the page's own in-memory state and
+      do not appear here.
+    </p>
+  </main>
+
+  <footer class="site-footer">
+    WebMCP Pharmacy Demo — history is kept in Upstash Redis and capped at the
+    20 most recent entries per list.
+  </footer>
+
+  <script src="approval.js"></script>
+  <script src="list-diff.js"></script>
+  <script src="activity-log.js"></script>
+  <script>
+  (function () {
+    "use strict";
+
+    if (!window.ApprovalClient || !window.ActivityLog || !window.ListDiff) {
+      var banner = document.getElementById("approved-error-banner");
+      banner.textContent =
+        "Could not load the page scripts. Reload the page to try again.";
+      banner.hidden = false;
+      return;
+    }
+
+    window.ActivityLog.mountApprovedPrescriptions({
+      listId: "approved-log",
+      emptyId: "approved-log-empty",
+      errorId: "approved-error-banner",
+      intervalMs: 5000
+    });
+
+    window.ActivityLog.mountRefillDecisions({
+      listId: "decisions-log",
+      emptyId: "decisions-log-empty",
+      errorId: "decisions-error-banner",
+      intervalMs: 5000
+    });
+  })();
+  </script>
+</body>
+</html>

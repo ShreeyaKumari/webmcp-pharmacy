@@ -1215,3 +1215,46 @@ a:hover {
   padding: var(--space-5) var(--space-4);
   font-size: var(--text-sm);
 }
+
+/* --------------------------------------------------------------------------
+   Activity log — refill decision rows
+   Reuses the .log-row shape; the left border and badge carry the outcome.
+   -------------------------------------------------------------------------- */
+
+.log-row--approved {
+  border-left-color: var(--ok-border);
+}
+
+.log-row--denied {
+  border-left-color: var(--bad-border);
+}
+
+.tag--approved {
+  color: var(--ok-text);
+  background: var(--ok-bg);
+  border: 1px solid var(--ok-border);
+}
+
+.tag--denied {
+  color: var(--bad-text);
+  background: var(--bad-bg);
+  border: 1px solid var(--bad-border);
+}
+
+/* Three nav items need a little more room on narrow screens */
+@media (max-width: 460px) {
+  .site-header__inner {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .site-nav {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .site-nav__link {
+    padding: 6px 10px;
+    font-size: var(--text-xs);
+  }
+}
